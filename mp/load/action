@@ -1,0 +1,161 @@
+#!/bin/sh
+# mp:load — compose and emit a skill's full content (manifest + every chunk
+# across every tier + applied patches) as one unified document. Thin CLI over
+# mp_compose_skill() in mp/lib/compose.sh.
+#
+# Usage:
+#   mp:load <skill-name> [--format md|json] [--tiers 5,3,0]
+#                         [--no-patches] [--with-history]
+#
+# Resolution: <skill-name> matches either the skill's frontmatter `name:` value
+# or its directory basename. Discovery is the union of registered + overlay
+# layers (mp_discover_skills).
+#
+# Exit codes:
+#   0  composed and emitted
+#   1  no such skill
+#   2  flag/usage error
+
+set -eu
+
+MP_HOME="${MP_HOME:-$HOME/.melt}"
+MP_PATTERNS="${MP_PATTERNS:-$MP_HOME/repos.patterns}"
+export MP_HOME MP_PATTERNS
+
+mp_resolve() {
+  p="$1"
+  while [ -L "$p" ]; do
+    target=$(readlink "$p")
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf "%s\n" "$p"
+}
+SCRIPT_REAL=$(mp_resolve "$0")
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_REAL")" && pwd)
+MP_LIB_DIR="${MP_LIB_DIR:-$SCRIPT_DIR/../lib}"
+for f in discover.sh tier.sh patch.sh compose.sh; do
+  if [ ! -f "$MP_LIB_DIR/$f" ]; then
+    printf 'ERROR: missing helper library: %s/%s\n' "$MP_LIB_DIR" "$f" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  . "$MP_LIB_DIR/$f"
+done
+
+usage() {
+  cat <<'EOF'
+usage: action <skill-name> [--format md|json] [--tiers 5,3,0]
+                           [--no-patches] [--with-history]
+
+  <skill-name>      frontmatter `name:` value or directory basename
+  --format          md (default) | json
+  --tiers           comma-separated tier list to include (default: all six)
+  --no-patches      show raw upstream content (skip patch apply)
+  --with-history    include each chunk's status_history block in the output
+
+exit: 0=composed, 1=no such skill, 2=usage
+EOF
+}
+
+# ----- resolve_basename: map <skill-name> (name: or dirname) → overlay basename -----
+# Walks every discovered skill row; if either the dirname OR the manifest's
+# `name:` field matches, return that dirname.
+resolve_basename() {
+  needle="$1"
+  found=""
+  mp_discover_skills 2>/dev/null | while IFS=$(printf '\t') read -r d origin kind; do
+    [ -n "$d" ] || continue
+    b=$(basename "$d")
+    if [ "$b" = "$needle" ]; then
+      printf "%s\n" "$b"
+      return 0
+    fi
+    # Match against the manifest's `name:` field. The manifest may live at $d
+    # OR (for mix-origin legacy skills with overlay-only patches) at the
+    # registered upstream path with the same basename.
+    manifest=$(mp_manifest_path "$d")
+    if [ -z "$manifest" ]; then
+      ups=$(mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+        root_e=$(mp_expand_root "$root")
+        if [ -d "$root_e/$b" ]; then
+          cand=$(mp_manifest_path "$root_e/$b")
+          [ -n "$cand" ] && { printf "%s\n" "$cand"; break; }
+        fi
+      done | head -n 1)
+      [ -n "$ups" ] && manifest="$ups"
+    fi
+    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+      nm=$(mp_fm_field name "$manifest")
+      if [ -n "$nm" ] && [ "$nm" = "$needle" ]; then
+        printf "%s\n" "$b"
+        return 0
+      fi
+    fi
+  done
+}
+
+# ----- parse flags + invoke compose -----
+main() {
+  if [ "$#" -eq 0 ]; then
+    usage >&2
+    return 2
+  fi
+  case "$1" in
+    -h|--help|help) usage; return 0 ;;
+  esac
+
+  skill_in="$1"; shift
+
+  # Pass-through flags to mp_compose_skill (it parses them itself).
+  format=md
+  tiers=""
+  no_patches=0
+  with_history=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --format)       format="${2:?--format needs value}"; shift 2 ;;
+      --format=*)     format="${1#--format=}"; shift ;;
+      --tiers)        tiers="${2:?--tiers needs value}"; shift 2 ;;
+      --tiers=*)      tiers="${1#--tiers=}"; shift ;;
+      --no-patches)   no_patches=1; shift ;;
+      --with-history) with_history=1; shift ;;
+      --) shift; break ;;
+      -*) mp_err "unknown flag: $1"; usage >&2; return 2 ;;
+      *)  mp_err "unexpected argument: $1"; usage >&2; return 2 ;;
+    esac
+  done
+  case "$format" in md|markdown|json) ;; *) mp_err "unknown format: $format"; return 2 ;; esac
+
+  # Resolve to a basename. Try literal-basename fast path first (dirname under
+  # $MP_HOME or under any registered root), then fall back to discovery walk.
+  basename_v=""
+  if [ -d "$MP_HOME/$skill_in" ]; then
+    basename_v="$skill_in"
+  fi
+  if [ -z "$basename_v" ]; then
+    basename_v=$(resolve_basename "$skill_in" | head -n 1)
+  fi
+  if [ -z "$basename_v" ]; then
+    mp_err "no such skill: $skill_in"
+    return 1
+  fi
+
+  # Build argv for compose_skill. Avoid passing empty --tiers.
+  set -- "$basename_v" --format "$format"
+  if [ -n "$tiers" ]; then
+    set -- "$@" --tiers "$tiers"
+  fi
+  if [ "$no_patches" -eq 1 ]; then
+    set -- "$@" --no-patches
+  fi
+  if [ "$with_history" -eq 1 ]; then
+    set -- "$@" --with-history
+  fi
+
+  mp_compose_skill "$@"
+}
+
+main "$@"

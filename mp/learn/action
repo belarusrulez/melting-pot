@@ -1,0 +1,872 @@
+#!/bin/sh
+# mp:learn — lifecycle automation for melting-pot.
+#
+# Subcommands:
+#   harvest [--transcript <path>]   propose new/update/promote/demote actions from
+#                                   either live-context JSON on stdin OR the
+#                                   transcript path written by melt-resume.sh
+#   promote <chunk>                 evaluate promote_when; if true, mv to tier+1
+#   demote <chunk>                  evaluate demote_when; if true, mv to tier-1
+#   cleanup                         propose deletion of stale chunks
+#   refactor                        propose consolidation of overlapping chunks
+#   cascade <chunk>                 walk depends_on; flag dependents (Q-002 v1)
+#   patch-triage [--format md|json] sweep all .failed/ markers; emit triage proposals
+#   eval                            scheduled sweep: promote/demote everything
+#
+# Flags: --dry-run on every mutating subcommand. Mutators write status_history
+# entries; reads are read-only.
+#
+# Exit: 0=ok, 1=condition unmet / nothing to do, 2=usage/config.
+
+set -eu
+
+MP_HOME="${MP_HOME:-$HOME/.melt}"
+MP_PATTERNS="${MP_PATTERNS:-$MP_HOME/repos.patterns}"
+MP_LEARN_DIR="${MP_LEARN_DIR:-$MP_HOME/learn}"
+MP_PENDING_TRANSCRIPT="${MP_PENDING_TRANSCRIPT:-$MP_LEARN_DIR/.pending-transcript}"
+
+mp_resolve() {
+  p="$1"
+  while [ -L "$p" ]; do
+    target=$(readlink "$p")
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf "%s\n" "$p"
+}
+SCRIPT_REAL=$(mp_resolve "$0")
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_REAL")" && pwd)
+MP_LIB_DIR="${MP_LIB_DIR:-$SCRIPT_DIR/../lib}"
+for f in discover.sh tier.sh patch.sh; do
+  if [ ! -f "$MP_LIB_DIR/$f" ]; then
+    printf 'ERROR: missing helper library: %s\n' "$MP_LIB_DIR/$f" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  . "$MP_LIB_DIR/$f"
+done
+
+usage() {
+  cat <<'EOF'
+usage: action <subcommand> [args] [--dry-run]
+
+  harvest [--transcript <path>] [--session <id>]
+                                — propose new/update/promote/demote actions.
+                                  Live mode: agent pipes structured JSON on stdin.
+                                  Transcript mode: reads .pending-transcript (read-then-unlink)
+                                  OR explicit --transcript <path>.
+  promote <chunk> [--dry-run]   — evaluate promote_when; mv to tier+1 if true
+  demote <chunk> [--dry-run]    — evaluate demote_when; mv to tier-1 if true
+  cleanup [--days N] [--yes]    — propose deletion of stale chunks (default N=90)
+  refactor [--yes]              — propose consolidation of overlapping chunks
+  cascade <chunk>               — walk depends_on; flag dependents (Q-002 v1: flag-only)
+  patch-triage [--format md|json] — sweep .failed/ markers; emit triage proposals
+  eval [--dry-run]              — scheduled sweep: promote/demote everything
+
+exit: 0=ok, 1=nothing-to-do, 2=usage/config
+EOF
+}
+
+# ============================================================================
+# Q-005 v1 evaluator — structured-key schema only (no DSL).
+# ============================================================================
+#
+# Frontmatter shape (nested YAML mapping, one key per line, two-space indent):
+#
+#   promote_when:
+#     use_count_min: 3
+#     days_since_last_use_max: 30
+#   demote_when:
+#     days_since_last_use_min: 90
+#
+# Recognized keys for both promote_when / demote_when:
+#   use_count_min                 (numeric)
+#   use_count_max                 (numeric)
+#   days_since_last_use_min       (numeric — days since last_used)
+#   days_since_last_use_max       (numeric)
+#   days_since_validated_min      (numeric — days since last_validated)
+#   days_since_validated_max      (numeric)
+#   tier_min                      (0..5)
+#   tier_max                      (0..5)
+#
+# Semantics: all listed keys are ANDed. The condition is "true" if every
+# listed key is satisfied. Unlisted keys are unconstrained.
+
+# Read a nested-mapping value: `mp_read_nested_key <chunk> <outer> <inner>` →
+# value on stdout, empty if missing.
+mp_read_nested_key() {
+  p="$1"; outer="$2"; inner="$3"
+  awk -v outer="$outer" -v inner="$inner" '
+    BEGIN { in_fm = 0; seen_open = 0; in_block = 0; outer_re = "^" outer ":[[:space:]]*$" }
+    /^---[[:space:]]*$/ {
+      if (!seen_open) { seen_open = 1; in_fm = 1; next }
+      else            { exit }
+    }
+    !in_fm { next }
+    {
+      if ($0 ~ outer_re) { in_block = 1; next }
+      if (in_block) {
+        if ($0 !~ /^[[:space:]]+/) { in_block = 0; next }
+        # Strip indent, look for "<inner>: <value>"
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        idx = index(line, ":")
+        if (idx == 0) next
+        k = substr(line, 1, idx - 1)
+        if (k == inner) {
+          v = substr(line, idx + 1)
+          sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+          if (length(v) >= 2) {
+            first = substr(v, 1, 1); last = substr(v, length(v), 1)
+            if ((first == "\"" && last == "\"") || (first == "'\''" && last == "'\''")) {
+              v = substr(v, 2, length(v) - 2)
+            }
+          }
+          print v
+          exit
+        }
+      }
+    }
+  ' "$p"
+}
+
+# Evaluate <outer> conditions against a chunk's metadata.
+# Args: <chunk-path> <outer>  (outer ∈ promote_when, demote_when)
+# Returns 0 if every present condition is satisfied; 1 otherwise.
+# Stderr: each evaluation line for debugging when MP_LOG_LEVEL=debug.
+mp_eval_when() {
+  p="$1"; outer="$2"
+  uc=$(mp_fm_field use_count "$p")
+  lu=$(mp_fm_field last_used "$p")
+  lv=$(mp_fm_field last_validated "$p")
+  dlu=$(mp_days_since "$lu")
+  dlv=$(mp_days_since "$lv")
+  tier=$(mp_tier_of_chunk "$p")
+  uc=${uc:-0}; tier=${tier:-0}; dlu=${dlu:-0}; dlv=${dlv:-0}
+
+  # If the outer block is missing entirely, condition is vacuously false (no
+  # rule = no promote/demote).
+  if ! grep -q "^${outer}:" "$p"; then
+    return 1
+  fi
+
+  any_constraint=0
+  for key in use_count_min use_count_max \
+             days_since_last_use_min days_since_last_use_max \
+             days_since_validated_min days_since_validated_max \
+             tier_min tier_max; do
+    v=$(mp_read_nested_key "$p" "$outer" "$key")
+    [ -z "$v" ] && continue
+    any_constraint=1
+    case "$key" in
+      use_count_min)            [ "$uc"  -ge "$v" ] || return 1 ;;
+      use_count_max)            [ "$uc"  -le "$v" ] || return 1 ;;
+      days_since_last_use_min)  [ "$dlu" -ge "$v" ] || return 1 ;;
+      days_since_last_use_max)  [ "$dlu" -le "$v" ] || return 1 ;;
+      days_since_validated_min) [ "$dlv" -ge "$v" ] || return 1 ;;
+      days_since_validated_max) [ "$dlv" -le "$v" ] || return 1 ;;
+      tier_min)                 [ "$tier" -ge "$v" ] || return 1 ;;
+      tier_max)                 [ "$tier" -le "$v" ] || return 1 ;;
+    esac
+  done
+  # If the block exists but has no recognized constraints, treat as false (the
+  # author wrote `promote_when:` with no body — no signal).
+  [ "$any_constraint" -eq 1 ]
+}
+
+# ============================================================================
+# promote / demote — mv chunk between N-melting-pot dirs + append status_history.
+# ============================================================================
+
+# Resolve a chunk argument to an absolute path. Accepts:
+#   - absolute path to a chunk
+#   - relative path starting with `<skill>/`
+#   - `<skill>/<chunk-name>` (resolves via mp_resolve_chunk_path)
+resolve_chunk() {
+  arg="$1"
+  if [ -f "$arg" ]; then
+    cd "$(dirname "$arg")" && printf "%s/%s\n" "$PWD" "$(basename "$arg")"
+    return 0
+  fi
+  case "$arg" in
+    */*)
+      skill="${arg%%/*}"
+      rest="${arg#*/}"
+      d=""
+      if [ -d "$MP_HOME/$skill" ]; then
+        d="$MP_HOME/$skill"
+      else
+        d=$(mp_discover_skills 2>/dev/null | awk -F'\t' -v b="$skill" '
+          { n = split($1, parts, "/"); if (parts[n] == b) { print $1; exit } }
+        ')
+      fi
+      [ -n "$d" ] || return 1
+      # If rest looks like `N-melting-pot/foo.md`, just join.
+      case "$rest" in
+        *.md|*/*) p="$d/$rest"
+                  if [ -f "$p" ]; then printf "%s\n" "$p"; return 0; fi ;;
+      esac
+      # Otherwise search tiers.
+      mp_resolve_chunk_path "$d" "$rest"
+      return $?
+      ;;
+  esac
+  return 1
+}
+
+cmd_promote() {
+  dry_run=0
+  arg=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "promote: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$arg" ]; then arg="$1"; shift; else mp_err "promote: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$arg" ] || { mp_err "promote: chunk required"; return 2; }
+  cp=$(resolve_chunk "$arg" 2>/dev/null || true)
+  if [ -z "$cp" ] || [ ! -f "$cp" ]; then
+    mp_err "promote: no such chunk: $arg"
+    return 1
+  fi
+  tier=$(mp_tier_of_chunk "$cp")
+  if [ -z "$tier" ]; then
+    mp_err "promote: chunk not under N-melting-pot/: $cp"
+    return 1
+  fi
+  if [ "$tier" -ge 5 ]; then
+    mp_warn "promote: already at tier 5: $cp"
+    return 1
+  fi
+  if ! mp_eval_when "$cp" promote_when; then
+    mp_warn "promote: promote_when not satisfied for $cp"
+    return 1
+  fi
+  new_tier=$((tier + 1))
+  skill_dir=$(dirname "$(dirname "$cp")")
+  new_dir="$skill_dir/${new_tier}-melting-pot"
+  new_path="$new_dir/$(basename "$cp")"
+  if [ -e "$new_path" ]; then
+    mp_err "promote: target exists: $new_path"
+    return 1
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN promote: %s -> %s\n" "$cp" "$new_path"
+    return 0
+  fi
+  # Stash before calling mp_append_status_history (POSIX sh has no local scope;
+  # the lib function reassigns `tier`).
+  old_tier="$tier"
+  mkdir -p "$new_dir"
+  mv "$cp" "$new_path"
+  mp_append_status_history "$new_path" "$new_tier" "promoted from tier $old_tier"
+  printf "promoted: tier %s -> %s\n  %s\n  -> %s\n" "$old_tier" "$new_tier" "$cp" "$new_path"
+}
+
+cmd_demote() {
+  dry_run=0
+  arg=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "demote: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$arg" ]; then arg="$1"; shift; else mp_err "demote: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$arg" ] || { mp_err "demote: chunk required"; return 2; }
+  cp=$(resolve_chunk "$arg" 2>/dev/null || true)
+  if [ -z "$cp" ] || [ ! -f "$cp" ]; then
+    mp_err "demote: no such chunk: $arg"
+    return 1
+  fi
+  tier=$(mp_tier_of_chunk "$cp")
+  if [ -z "$tier" ]; then
+    mp_err "demote: chunk not under N-melting-pot/: $cp"
+    return 1
+  fi
+  if [ "$tier" -le 0 ]; then
+    mp_warn "demote: already at tier 0: $cp"
+    return 1
+  fi
+  if ! mp_eval_when "$cp" demote_when; then
+    mp_warn "demote: demote_when not satisfied for $cp"
+    return 1
+  fi
+  new_tier=$((tier - 1))
+  skill_dir=$(dirname "$(dirname "$cp")")
+  new_dir="$skill_dir/${new_tier}-melting-pot"
+  new_path="$new_dir/$(basename "$cp")"
+  if [ -e "$new_path" ]; then
+    mp_err "demote: target exists: $new_path"
+    return 1
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN demote: %s -> %s\n" "$cp" "$new_path"
+    return 0
+  fi
+  old_tier="$tier"
+  mkdir -p "$new_dir"
+  mv "$cp" "$new_path"
+  mp_append_status_history "$new_path" "$new_tier" "demoted from tier $old_tier"
+  printf "demoted: tier %s -> %s\n  %s\n  -> %s\n" "$old_tier" "$new_tier" "$cp" "$new_path"
+  # Cascade evaluation (flag-only per Q-002 v1).
+  cmd_cascade "$new_path" >&2 || true
+}
+
+# ============================================================================
+# cascade — flag dependents (Q-002 v1: flag-only, no auto-mutation).
+# ============================================================================
+
+# Read depends_on list. Returns one dep-ref per line. Supports inline `[]` and
+# flow-list `[a, b]` and block-list under `depends_on:` indented `- foo`.
+mp_read_depends_on() {
+  p="$1"
+  awk '
+    BEGIN { in_fm = 0; seen_open = 0; in_block = 0 }
+    /^---[[:space:]]*$/ {
+      if (!seen_open) { seen_open = 1; in_fm = 1; next }
+      else            { exit }
+    }
+    !in_fm { next }
+    /^depends_on:[[:space:]]*$/ { in_block = 1; next }
+    /^depends_on:[[:space:]]*\[/ {
+      # Inline flow list.
+      line = $0
+      sub(/^depends_on:[[:space:]]*\[/, "", line)
+      sub(/\][[:space:]]*$/, "", line)
+      n = split(line, parts, ",")
+      for (i = 1; i <= n; i++) {
+        v = parts[i]
+        sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+        if (length(v) >= 2) {
+          first = substr(v, 1, 1); last = substr(v, length(v), 1)
+          if ((first == "\"" && last == "\"") || (first == "'\''" && last == "'\''")) {
+            v = substr(v, 2, length(v) - 2)
+          }
+        }
+        if (v != "") print v
+      }
+      next
+    }
+    in_block {
+      if ($0 !~ /^[[:space:]]+/) { in_block = 0; next }
+      line = $0
+      sub(/^[[:space:]]+-[[:space:]]*/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      if (length(line) >= 2) {
+        first = substr(line, 1, 1); last = substr(line, length(line), 1)
+        if ((first == "\"" && last == "\"") || (first == "'\''" && last == "'\''")) {
+          line = substr(line, 2, length(line) - 2)
+        }
+      }
+      if (line != "") print line
+    }
+  ' "$p"
+}
+
+# cascade <chunk>: walk depends_on graph, emit one line per dependent that
+# references THIS chunk. Q-002 v1: flag-only, never auto-mutate.
+cmd_cascade() {
+  arg="${1:?cascade: chunk required}"
+  cp=$(resolve_chunk "$arg" 2>/dev/null || true)
+  if [ -z "$cp" ] || [ ! -f "$cp" ]; then
+    mp_err "cascade: no such chunk: $arg"
+    return 1
+  fi
+  # Build canonical ref the dependents would use: `<skill>/<chunk-basename>` and
+  # `<skill>/<tier>/<chunk-basename>` shapes. We do substring match.
+  skill_dir=$(dirname "$(dirname "$cp")")
+  skill_b=$(basename "$skill_dir")
+  chunk_bn=$(basename "$cp")
+  flagged=0
+  # Walk every chunk under every discovered skill, look at depends_on.
+  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    for n in 0 1 2 3 4 5; do
+      td="$d/${n}-melting-pot"
+      [ -d "$td" ] || continue
+      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r f; do
+        deps=$(mp_read_depends_on "$f")
+        [ -n "$deps" ] || continue
+        match=0
+        while IFS= read -r dep; do
+          [ -n "$dep" ] || continue
+          case "$dep" in
+            "$skill_b"/*"$chunk_bn"*|"$skill_b/$chunk_bn"|"$skill_b:"*"$chunk_bn"*)
+              match=1; break ;;
+          esac
+        done <<EOF
+$deps
+EOF
+        if [ "$match" -eq 1 ]; then
+          printf "FLAG  %s depends on %s/%s — review for cascade demote\n" "$f" "$skill_b" "$chunk_bn"
+        fi
+      done
+    done
+  done | tee /dev/null
+  return 0
+}
+
+# ============================================================================
+# cleanup — propose deletion of stale chunks.
+# Stale criteria (default):
+#   - chunk at tier 0 AND days_since_last_use > $days
+#   - chunk's `last_used` missing AND `created` > $days
+#   - chunk's provenance empty/missing
+# ============================================================================
+
+cmd_cleanup() {
+  days=90
+  yes=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --days)    days="${2:?--days needs value}"; shift 2 ;;
+      --days=*)  days="${1#--days=}"; shift ;;
+      --yes)     yes=1; shift ;;
+      -*) mp_err "cleanup: unknown flag: $1"; return 2 ;;
+      *)  mp_err "cleanup: extra arg: $1"; return 2 ;;
+    esac
+  done
+  proposals=$(mktemp -t mp_cleanup.XXXXXX)
+  : > "$proposals"
+  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    for n in 0 1 2 3 4 5; do
+      td="$d/${n}-melting-pot"
+      [ -d "$td" ] || continue
+      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r f; do
+        lu=$(mp_fm_field last_used "$f")
+        cr=$(mp_fm_field created "$f")
+        prov=$(mp_fm_field provenance "$f")
+        reason=""
+        # Tier 0 + idle > days
+        if [ "$n" = "0" ]; then
+          dlu=$(mp_days_since "$lu")
+          dlu=${dlu:-0}
+          if [ -n "$lu" ] && [ "$dlu" -gt "$days" ]; then
+            reason="tier-0 idle for $dlu days (> $days)"
+          fi
+          if [ -z "$reason" ] && [ -z "$lu" ]; then
+            dcr=$(mp_days_since "$cr"); dcr=${dcr:-0}
+            if [ -n "$cr" ] && [ "$dcr" -gt "$days" ]; then
+              reason="tier-0 born $dcr days ago, never used"
+            fi
+          fi
+        fi
+        # Provenance gone (independent of tier).
+        if [ -z "$reason" ] && [ -z "$prov" ]; then
+          # Heuristic: a chunk with NO provenance line and no body activity.
+          # We only flag this for tier 0 to be conservative.
+          if [ "$n" = "0" ]; then
+            reason="missing provenance"
+          fi
+        fi
+        if [ -n "$reason" ]; then
+          printf "%s\t%s\n" "$f" "$reason" >> "$proposals"
+        fi
+      done
+    done
+  done
+  if [ ! -s "$proposals" ]; then
+    printf "no stale chunks found.\n"
+    rm -f "$proposals"
+    return 1
+  fi
+  printf "stale chunk proposals (days threshold = %s):\n\n" "$days"
+  awk -F'\t' '{printf "  %s\n    reason: %s\n", $1, $2}' "$proposals"
+  printf "\n"
+  if [ "$yes" -eq 1 ]; then
+    while IFS=$(printf '\t') read -r p _; do
+      rm -f "$p"
+      printf "removed: %s\n" "$p"
+    done < "$proposals"
+  else
+    printf "re-run with --yes to delete the listed chunks.\n"
+  fi
+  rm -f "$proposals"
+  return 0
+}
+
+# ============================================================================
+# refactor — propose consolidation of overlapping/duplicate chunks.
+# v1 heuristic: chunks with identical normalized titles across the same skill
+# or across skills with same basename prefix. Real near-duplicate detection
+# requires FTS5 NEAR queries — deferred to a later phase per the build plan.
+# ============================================================================
+
+cmd_refactor() {
+  yes=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --yes) yes=1; shift ;;
+      -*) mp_err "refactor: unknown flag: $1"; return 2 ;;
+      *)  mp_err "refactor: extra arg: $1"; return 2 ;;
+    esac
+  done
+  # Build (title-lower\tchunk-path) for every chunk.
+  rows=$(mktemp -t mp_refactor.XXXXXX)
+  : > "$rows"
+  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    for n in 0 1 2 3 4 5; do
+      td="$d/${n}-melting-pot"
+      [ -d "$td" ] || continue
+      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r f; do
+        title=$(mp_fm_field title "$f")
+        [ -n "$title" ] || continue
+        tnorm=$(printf "%s" "$title" | tr 'A-Z' 'a-z' | tr -d '[:space:]')
+        printf "%s\t%s\n" "$tnorm" "$f" >> "$rows"
+      done
+    done
+  done
+  if [ ! -s "$rows" ]; then
+    printf "no chunks with titles to compare.\n"
+    rm -f "$rows"
+    return 1
+  fi
+  sort -t "$(printf '\t')" -k1,1 "$rows" -o "$rows"
+  # Group by normalized title, emit groups with >=2 members.
+  dups=$(mktemp -t mp_refactor_d.XXXXXX)
+  awk -F'\t' '
+    { titles[$1] = (titles[$1] ? titles[$1] "\n" : "") $2 }
+    END {
+      for (t in titles) {
+        n = split(titles[t], paths, "\n")
+        if (n >= 2) {
+          printf "%s\t%d\n", t, n
+          for (i = 1; i <= n; i++) printf "  %s\n", paths[i]
+        }
+      }
+    }
+  ' "$rows" > "$dups"
+  if [ ! -s "$dups" ]; then
+    printf "no overlapping chunks found.\n"
+    rm -f "$rows" "$dups"
+    return 1
+  fi
+  printf "overlap proposals (normalized title match):\n\n"
+  cat "$dups"
+  printf "\n"
+  if [ "$yes" -eq 1 ]; then
+    printf "(v1: refactor --yes is interactive-only — proposals printed above; consolidation must be done by hand or via mp:crud)\n"
+  else
+    printf "re-run with --yes for interactive consolidation (v1: still prints proposals only).\n"
+  fi
+  rm -f "$rows" "$dups"
+  return 0
+}
+
+# ============================================================================
+# patch-triage — sweep .failed/ markers, emit triage proposals.
+# Format: structured markdown (default) or JSON.
+# ============================================================================
+
+cmd_patch_triage() {
+  format=md
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --format)   format="${2:?--format needs value}"; shift 2 ;;
+      --format=*) format="${1#--format=}"; shift ;;
+      -*) mp_err "patch-triage: unknown flag: $1"; return 2 ;;
+      *)  mp_err "patch-triage: extra arg: $1"; return 2 ;;
+    esac
+  done
+  case "$format" in md|markdown) format=md ;; json) ;; *) mp_err "unknown format: $format"; return 2 ;; esac
+
+  markers=$(mktemp -t mp_triage.XXXXXX)
+  : > "$markers"
+  # Walk every overlay skill's patches/.failed/ dir.
+  if [ -d "$MP_HOME" ]; then
+    for d in "$MP_HOME"/*/; do
+      [ -d "$d" ] || continue
+      d="${d%/}"
+      b=$(basename "$d")
+      case "$b" in
+        search|trash|.trash|learn|hooks) continue ;;
+      esac
+      fdir="$d/patches/.failed"
+      [ -d "$fdir" ] || continue
+      find "$fdir" -maxdepth 1 -type f -name '*.failed' 2>/dev/null | sort | while IFS= read -r m; do
+        printf "%s\t%s\n" "$b" "$m" >> "$markers"
+      done
+    done
+  fi
+  if [ ! -s "$markers" ]; then
+    case "$format" in
+      md)   printf "no failed patches to triage.\n" ;;
+      json) printf '{"proposals":[],"count":0}\n' ;;
+    esac
+    rm -f "$markers"
+    return 1
+  fi
+  total=$(wc -l < "$markers" | tr -d ' ')
+  case "$format" in
+    md)
+      printf "# patch-triage proposals (%s)\n\n" "$total"
+      i=0
+      while IFS=$(printf '\t') read -r skill marker; do
+        i=$((i + 1))
+        pid=$(basename "$marker" .failed)
+        ts=$(awk '/^--- timestamp ---$/{f=1; next} f{print; exit}' "$marker")
+        printf "## %s. %s/%s\n\n" "$i" "$skill" "$pid"
+        printf -- '- **Skill:** `%s`\n' "$skill"
+        printf -- '- **Patch ID:** `%s`\n' "$pid"
+        printf -- '- **Failed at:** %s\n' "$ts"
+        printf -- '- **Marker:** `%s`\n\n' "$marker"
+        printf "### Reject output\n\n\`\`\`\n"
+        awk '/^--- reject ---$/{f=1; next} /^--- /{f=0} f' "$marker"
+        printf "\`\`\`\n\n"
+        printf "### Choices\n\n"
+        printf -- '- `regenerate` — agent rewrites the patch against current upstream\n'
+        printf -- '- `hand-rewrite` — open in $EDITOR\n'
+        printf -- '- `delete` — `sh ~/.melt/crud/action patch-remove %s %s`\n' "$skill" "$pid"
+        printf -- '- `defer` — leave marker; re-surfaces next sweep\n\n'
+      done < "$markers"
+      ;;
+    json)
+      printf '{"proposals":['
+      first=1
+      while IFS=$(printf '\t') read -r skill marker; do
+        pid=$(basename "$marker" .failed)
+        ts=$(awk '/^--- timestamp ---$/{f=1; next} f{print; exit}' "$marker")
+        reject=$(awk '/^--- reject ---$/{f=1; next} /^--- /{f=0} f' "$marker" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN{ORS="\\n"}{print}')
+        [ "$first" -eq 1 ] && first=0 || printf ','
+        printf '{"skill":"%s","patch_id":"%s","timestamp":"%s","marker":"%s","reject":"%s","choices":["regenerate","hand-rewrite","delete","defer"]}' \
+          "$skill" "$pid" "$ts" "$marker" "$reject"
+      done < "$markers"
+      printf '],"count":%s}\n' "$total"
+      ;;
+  esac
+  rm -f "$markers"
+  return 0
+}
+
+# ============================================================================
+# harvest — propose new/update/promote/demote actions.
+#   Live-context mode: agent pipes structured JSON via stdin. We validate that
+#                      it's parseable JSON; the agent is responsible for the
+#                      semantic content. We acknowledge the proposal and (in
+#                      --apply mode) execute create/update.
+#   Transcript mode:   read .pending-transcript (read-then-unlink), echo the
+#                      .jsonl path and a guard message; the agent reads the
+#                      file itself.
+# Stdin JSON shape (recommended; agent-authored):
+#   {"proposals": [
+#     {"action": "create", "skill": "git-rebase", "tier": 0, "chunk_name": "foo",
+#      "title": "...", "body": "...", "session": "abc"},
+#     {"action": "update", "chunk": "git-rebase/0-melting-pot/foo.md", "body": "..."},
+#     {"action": "promote", "chunk": "git-rebase/0-melting-pot/foo.md"},
+#     {"action": "demote",  "chunk": "git-rebase/5-melting-pot/x.md"}
+#   ]}
+# v1: validate JSON via sqlite3 json_valid, echo proposal count, do NOT auto-
+# apply mutations — agent decides which to enact via crud/learn helpers.
+# ============================================================================
+
+cmd_harvest() {
+  transcript=""
+  session=""
+  apply=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --transcript)   transcript="${2:?--transcript needs value}"; shift 2 ;;
+      --transcript=*) transcript="${1#--transcript=}"; shift ;;
+      --session)      session="${2:?--session needs value}"; shift 2 ;;
+      --session=*)    session="${1#--session=}"; shift ;;
+      --apply)        apply=1; shift ;;
+      -*) mp_err "harvest: unknown flag: $1"; return 2 ;;
+      *)  mp_err "harvest: extra arg: $1"; return 2 ;;
+    esac
+  done
+
+  # Transcript mode if --transcript supplied OR .pending-transcript exists.
+  if [ -z "$transcript" ] && [ -f "$MP_PENDING_TRANSCRIPT" ]; then
+    transcript=$(cat "$MP_PENDING_TRANSCRIPT" 2>/dev/null || true)
+    # Read-then-unlink: clear the handshake file so a stale path can't fire
+    # accidental "yes" triggers later.
+    rm -f "$MP_PENDING_TRANSCRIPT"
+  fi
+  if [ -n "$transcript" ]; then
+    if [ ! -f "$transcript" ]; then
+      mp_err "harvest: transcript path does not exist: $transcript"
+      return 1
+    fi
+    printf "transcript-mode harvest\n"
+    printf "  transcript: %s\n" "$transcript"
+    sz=$(wc -c < "$transcript" 2>/dev/null | tr -d ' ')
+    printf "  size: %s bytes\n" "$sz"
+    printf "\n"
+    printf "Next step (agent): read the .jsonl file and propose structured actions\n"
+    printf "as JSON on stdin to a follow-up: sh ~/.melt/learn/action harvest [--apply].\n"
+    return 0
+  fi
+
+  # Live-context mode: read JSON from stdin.
+  if [ -t 0 ]; then
+    mp_err "harvest: live-context mode requires JSON on stdin (or use --transcript <path>)"
+    return 2
+  fi
+  buf=$(mktemp -t mp_harvest.XXXXXX)
+  cat > "$buf"
+  if [ ! -s "$buf" ]; then
+    mp_err "harvest: empty stdin"
+    rm -f "$buf"
+    return 1
+  fi
+  # Validate JSON via sqlite3 (POSIX stock).
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$buf" | sqlite3 2>/dev/null || true)
+  if [ "$valid" != "1" ]; then
+    mp_err "harvest: stdin is not valid JSON"
+    rm -f "$buf"
+    return 1
+  fi
+  # Count proposals (top-level "proposals" array length).
+  n=$(printf "select coalesce(json_array_length(json_extract(readfile('%s'),'\$.proposals')),0);\n" "$buf" | sqlite3 2>/dev/null || printf 0)
+  n=${n:-0}
+  printf "live-context harvest\n"
+  printf "  proposals: %s\n" "$n"
+  if [ "$apply" -eq 0 ]; then
+    printf "\n"
+    printf "(--apply not set — proposals shown but not enacted. Agent decides per-action via mp:crud / mp:learn.)\n"
+    # Print pretty-readable per-action summary.
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+      s=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n"  "$buf" "$i" | sqlite3 2>/dev/null || true)
+      c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n"  "$buf" "$i" | sqlite3 2>/dev/null || true)
+      printf "  %s: action=%s skill=%s chunk=%s\n" "$i" "${a:-}" "${s:-}" "${c:-}"
+      i=$((i + 1))
+    done
+    rm -f "$buf"
+    return 0
+  fi
+  # --apply: execute each create/update/promote/demote.
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+    case "$a" in
+      create)
+        skill=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        title=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].title');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        cname=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk_name');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        body=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].body');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        sess=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].session');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        [ -z "$skill" ] && { mp_warn "skip create #$i: missing skill"; i=$((i+1)); continue; }
+        [ -z "$cname" ] && cname="harvested-$(date -u +%s)-$i"
+        case "$cname" in *.md) ;; *) cname="$cname.md" ;; esac
+        sd="$MP_HOME/$skill"
+        [ -d "$sd" ] || mkdir -p "$sd/0-melting-pot"
+        [ -d "$sd/0-melting-pot" ] || mkdir -p "$sd/0-melting-pot"
+        cp="$sd/0-melting-pot/$cname"
+        if [ -e "$cp" ]; then
+          mp_warn "skip create #$i: target exists: $cp"
+        else
+          {
+            mp_new_chunk_frontmatter "${title:-untitled}" "${sess:-unknown}"
+            printf "\n%s\n" "${body:-TODO body}"
+          } > "$cp"
+          printf "created: %s\n" "$cp"
+        fi
+        ;;
+      promote)
+        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        [ -n "$c" ] && cmd_promote "$c" || mp_warn "skip promote #$i: missing chunk"
+        ;;
+      demote)
+        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        [ -n "$c" ] && cmd_demote "$c" || mp_warn "skip demote #$i: missing chunk"
+        ;;
+      update)
+        # Updates are out of scope for harvest --apply v1 (need diff merge);
+        # surface to the agent.
+        mp_warn "harvest --apply: update actions are not auto-applied; agent should edit directly"
+        ;;
+      *)
+        mp_warn "harvest --apply: unknown action #$i: $a"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  rm -f "$buf"
+}
+
+# ============================================================================
+# eval — scheduled sweep. Run promote_when then demote_when for every chunk.
+# ============================================================================
+
+cmd_eval() {
+  dry_run=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "eval: unknown flag: $1"; return 2 ;;
+      *)  mp_err "eval: extra arg: $1"; return 2 ;;
+    esac
+  done
+  promoted=0
+  demoted=0
+  # Snapshot chunk list first to avoid re-walking the moving tree.
+  snap=$(mktemp -t mp_eval.XXXXXX)
+  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    for n in 0 1 2 3 4 5; do
+      td="$d/${n}-melting-pot"
+      [ -d "$td" ] || continue
+      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null
+    done
+  done > "$snap"
+
+  # Try promote first (chunks ascending the gradient first).
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if mp_eval_when "$f" promote_when 2>/dev/null; then
+      if [ "$dry_run" -eq 1 ]; then
+        printf "DRY-RUN would promote: %s\n" "$f"
+      else
+        cmd_promote "$f" 2>/dev/null && promoted=$((promoted + 1)) || true
+      fi
+    fi
+  done < "$snap"
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if mp_eval_when "$f" demote_when 2>/dev/null; then
+      if [ "$dry_run" -eq 1 ]; then
+        printf "DRY-RUN would demote: %s\n" "$f"
+      else
+        cmd_demote "$f" 2>/dev/null && demoted=$((demoted + 1)) || true
+      fi
+    fi
+  done < "$snap"
+  rm -f "$snap"
+  if [ "$dry_run" -eq 0 ]; then
+    printf "eval: promoted=%s demoted=%s\n" "$promoted" "$demoted"
+  fi
+  return 0
+}
+
+# ============================================================================
+# dispatch
+# ============================================================================
+main() {
+  if [ "$#" -eq 0 ]; then
+    usage
+    return 2
+  fi
+  sub="$1"; shift
+  case "$sub" in
+    harvest)      cmd_harvest "$@" ;;
+    promote)      cmd_promote "$@" ;;
+    demote)       cmd_demote "$@" ;;
+    cleanup)      cmd_cleanup "$@" ;;
+    refactor)     cmd_refactor "$@" ;;
+    cascade)      cmd_cascade "$@" ;;
+    patch-triage) cmd_patch_triage "$@" ;;
+    eval)         cmd_eval "$@" ;;
+    -h|--help|help) usage; return 0 ;;
+    *) mp_err "unknown subcommand: $sub"; usage >&2; return 2 ;;
+  esac
+}
+
+main "$@"

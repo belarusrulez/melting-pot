@@ -1,0 +1,129 @@
+qid	axis1	axis2	axis3	target_skill	grade
+# category: exact-vocab
+q001	binary search the first bad commit	bisect regression in recent history	find which commit introduced the regression	git-bisect	2
+q002	squash WIP commits before review	interactive rebase to tidy history	clean up feature branch commits before opening a PR	git-rebase	2
+q002	squash WIP commits before review	interactive rebase to tidy history	clean up feature branch commits before opening a PR	git-cherry-pick	1
+q003	mirror local directory to S3 bucket	aws s3 sync with delete and exclude	upload built assets to S3 and remove orphans	aws-s3-sync	2
+q004	docker build with BuildKit cache	cache-from cache-to remote registry layer cache	speed up CI docker builds by reusing cached layers	docker-build-cache	2
+q005	deploy container image to Cloud Run	gcloud run deploy with env-vars-file	ship container to Google Cloud Run with env vars from .env	gcp-cloud-run	2
+q006	visualize EXPLAIN plan as a tree	render postgres explain analyze output	understand why my SQL query is slow	sql-explain	2
+# category: synonym-jargon
+q007	find the commit that broke this	git which change introduced the bug	figure out when this regression appeared	git-bisect	2
+q007	find the commit that broke this	git which change introduced the bug	figure out when this regression appeared	git-rebase	0
+q008	pull a single change onto release branch	backport one commit to a release branch	apply just this hotfix to v2024.04 without merging	git-cherry-pick	2
+q008	pull a single change onto release branch	backport one commit to a release branch	apply just this hotfix to v2024.04 without merging	git-rebase	1
+q009	pull tables out of a PDF report	extract tabular data from PDF into CSV	scrape numbers from a bank statement PDF	pdf-extract-tables	2
+q009	pull tables out of a PDF report	extract tabular data from PDF into CSV	scrape numbers from a bank statement PDF	pdf-viewer-cli	0
+q009	pull tables out of a PDF report	extract tabular data from PDF into CSV	scrape numbers from a bank statement PDF	parquet-inspect	0
+q010	audit npm and pip for CVEs	scan project dependencies for known vulnerabilities	check what vulnerable libraries my project pulls in	dep-vuln-scan	2
+q010	audit npm and pip for CVEs	scan project dependencies for known vulnerabilities	check what vulnerable libraries my project pulls in	port-scan-local	0
+q011	rotate Stripe API key	cycle credentials in AWS Secrets Manager	swap out a leaked API key without breaking prod	secret-rotate-cli	2
+q011	rotate Stripe API key	cycle credentials in AWS Secrets Manager	swap out a leaked API key without breaking prod	password-gen	0
+q012	base64-encode a value for a kubernetes secret	base64 encode for k8s manifest	turn this password into the right form for a Secret yaml	base64-codec	2
+q012	base64-encode a value for a kubernetes secret	base64 encode for k8s manifest	turn this password into the right form for a Secret yaml	qr-make	0
+q013	rebase database shards to relieve a hot shard	rebalance shard distribution in sharded database	move ranges off the overloaded shard	db-rebalance-shards	2
+q013	rebase database shards to relieve a hot shard	rebalance shard distribution in sharded database	move ranges off the overloaded shard	git-rebase	0
+q014	outer-join two CSVs on a key column	stitch CSV files together on a shared id	combine users.csv and orders.csv into one table	csv-merge	2
+q014	outer-join two CSVs on a key column	stitch CSV files together on a shared id	combine users.csv and orders.csv into one table	csv-dedupe	1
+# category: intent-only
+q015	my disk is full what is eating space	find the biggest folders and files	figure out where all my disk space went	disk-usage-top	2
+q016	what is listening on port 8080	which process owns this socket	cannot bind to a port and want to know what already has it	port-scan-local	2
+q017	share this URL to my phone	make a QR code for a link	let someone scan this with their camera	qr-make	2
+q017	share this URL to my phone	make a QR code for a link	let someone scan this with their camera	qr-decode-camera	0
+q018	I need a strong password for a service account	generate a random credential	make me something secure for an admin login	password-gen	2
+q019	watch nginx and app logs together	follow multiple log files at once	correlate events across services while reproducing a bug	log-tail-multi	2
+q019	watch nginx and app logs together	follow multiple log files at once	correlate events across services while reproducing a bug	nginx-access-parse	1
+q020	make my JSON readable for diffing	pretty-print and sort keys	clean up this minified JSON so I can compare it	json-pretty	2
+q020	make my JSON readable for diffing	pretty-print and sort keys	clean up this minified JSON so I can compare it	jq-cookbook	1
+q021	format my JS and Markdown consistently	run prettier across the repo	fix indentation and style in my web project	format-prettier	2
+q021	format my JS and Markdown consistently	run prettier across the repo	fix indentation and style in my web project	eslint-autofix	1
+q022	container exits 137 immediately on start	pod OOMKilled in kubernetes	workload keeps getting killed by the cluster	k8s-debug-pod	2
+# category: cross-domain-ambiguity
+q023	fix CONFLICT markers from a rebase	resolve three-way merge conflicts	git stopped mid-rebase with conflicts walk me through it	merge-conflict-resolver	2
+q023	fix CONFLICT markers from a rebase	resolve three-way merge conflicts	git stopped mid-rebase with conflicts walk me through it	git-rebase	1
+q023	fix CONFLICT markers from a rebase	resolve three-way merge conflicts	git stopped mid-rebase with conflicts walk me through it	git-cherry-pick	1
+q024	deduplicate rows in a single CSV file	collapse duplicate entries in one csv	clean up duplicate contacts in a CSV	csv-dedupe	2
+q024	deduplicate rows in a single CSV file	collapse duplicate entries in one csv	clean up duplicate contacts in a CSV	csv-merge	1
+q025	review a terraform plan before merge	render tf plan as a PR diff with cost	make terraform changes reviewable in a pull request	terraform-plan-review	2
+q025	review a terraform plan before merge	render tf plan as a PR diff with cost	make terraform changes reviewable in a pull request	cdk-diff-stack	1
+q025	review a terraform plan before merge	render tf plan as a PR diff with cost	make terraform changes reviewable in a pull request	sql-explain	0
+q026	lint my python before pushing	run fast python linter and auto-fix	check python code quality before commit	ruff-fix	2
+q026	lint my python before pushing	run fast python linter and auto-fix	check python code quality before commit	lint-pylint	1
+q026	lint my python before pushing	run fast python linter and auto-fix	check python code quality before commit	type-mypy	1
+q027	tighten this regex pattern	interactive regex tester REPL	debug regular expression with sample input	regex-test	2
+q027	tighten this regex pattern	interactive regex tester REPL	debug regular expression with sample input	regex-replace-bulk	1
+q028	rollback a bad k8s deploy	undo a failed kubernetes rollout	new api revision is broken get back to last good	k8s-rollout-undo	2
+q028	rollback a bad k8s deploy	undo a failed kubernetes rollout	new api revision is broken get back to last good	k8s-debug-pod	1
+q029	recover commits lost to git reset hard	walk reflog to find a destroyed branch tip	I hard-reset and lost two days of work	git-reflog-recover	2
+q029	recover commits lost to git reset hard	walk reflog to find a destroyed branch tip	I hard-reset and lost two days of work	git-stash-revive	1
+q030	decode this QR code from an image	read payload out of a QR png	phone scanner not handy whats in this QR	qr-decode-camera	2
+q030	decode this QR code from an image	read payload out of a QR png	phone scanner not handy whats in this QR	qr-make	0
+# category: exact-vocab (extension)
+q031	group pylint findings by severity tier	run pylint with project-aware defaults	lint python and bucket errors by severity	lint-pylint	2
+q032	HTML coverage report files below 80 percent	line coverage threshold report	show which source files have low test coverage	coverage-report	2
+q033	mypy strict mode only new errors vs base branch	run mypy and ignore pre-existing debt	type-check just my changes not the whole repo	type-mypy	2
+q034	auto-detect test framework and run the suite	run tests without specifying tooling	just run all the tests in this project	test-runner-smart	2
+# category: synonym-jargon (extension)
+q035	where did my stashed changes go	lost work after git stash clear	I think I nuked my WIP can I get it back	git-stash-revive	2
+q035	where did my stashed changes go	lost work after git stash clear	I think I nuked my WIP can I get it back	git-bisect	0
+q036	WiFi QR for guests	generate WIFI schema QR code	let visitors join wifi without typing the password	qr-make	2
+# category: intent-only (extension)
+q037	my postgres database is suddenly slow	lots of dead tuples after big delete	queries are dragging since the cleanup job ran	postgres-vacuum	2
+q037	my postgres database is suddenly slow	lots of dead tuples after big delete	queries are dragging since the cleanup job ran	sql-explain	1
+q038	follow errors from a systemd service	window of journalctl entries for one unit	pull logs for nginx during the incident	journalctl-window	2
+q038	follow errors from a systemd service	window of journalctl entries for one unit	pull logs for nginx during the incident	log-tail-multi	1
+q039	see request waterfall for a slow request	find slowest span in distributed trace	which downstream call ate the latency budget	otel-trace-explore	2
+q039	see request waterfall for a slow request	find slowest span in distributed trace	which downstream call ate the latency budget	prometheus-query	1
+q040	check coverage only on changed files	diff-only coverage gate for a PR	did this PR meet coverage on its own lines	coverage-report	2
+q041	rotate AWS access keys older than 90 days	find stale IAM keys for compliance	clean up access keys nobody is using	aws-iam-audit	2
+q041	rotate AWS access keys older than 90 days	find stale IAM keys for compliance	clean up access keys nobody is using	secret-rotate-cli	1
+q042	view a PDF in the terminal	ASCII or sixel render of a PDF page	flip through a PDF without opening a GUI viewer	pdf-viewer-cli	2
+q042	view a PDF in the terminal	ASCII or sixel render of a PDF page	flip through a PDF without opening a GUI viewer	pdf-extract-tables	0
+# category: cross-domain-ambiguity (extension)
+q043	scan source code for SQL injection	SAST for OWASP top ten	check my Python and JS for injection bugs	sast-semgrep-scan	2
+q043	scan source code for SQL injection	SAST for OWASP top ten	check my Python and JS for injection bugs	dep-vuln-scan	1
+q044	merge multiple .env files in priority order	compose env.shared env.local env.secret	flatten my env config across files	dotenv-merge	2
+q045	find slow spans in production	query distributed traces by min duration	which endpoints took longer than 2 seconds today	otel-trace-explore	2
+q045	find slow spans in production	query distributed traces by min duration	which endpoints took longer than 2 seconds today	prometheus-query	1
+q046	lint my shell scripts before commit	shellcheck deploy.sh and friends	catch quoting bugs in my bash scripts	bash-script-lint	2
+q046	lint my shell scripts before commit	shellcheck deploy.sh and friends	catch quoting bugs in my bash scripts	lint-pylint	0
+q047	spin up a local multi-service dev stack	docker compose with healthchecks	get my db redis and api running together locally	docker-compose-up	2
+q047	spin up a local multi-service dev stack	docker compose with healthchecks	get my db redis and api running together locally	k8s-debug-pod	1
+q048	fuzzy search my bash history	atuin style command history search	find that kubectl command I ran last week	shell-history-search	2
+q048	fuzzy search my bash history	atuin style command history search	find that kubectl command I ran last week	clipboard-history	1
+q049	deduplicate JSON output by a field	jq distinct on a key	collapse duplicate users in this JSON array	jq-cookbook	2
+q049	deduplicate JSON output by a field	jq distinct on a key	collapse duplicate users in this JSON array	json-pretty	1
+q049	deduplicate JSON output by a field	jq distinct on a key	collapse duplicate users in this JSON array	csv-dedupe	0
+q050	generate CHANGELOG from commits between tags	auto-build release notes from Conventional Commits	write v1.5 release notes from git history	release-changelog-gen	2
+q050	generate CHANGELOG from commits between tags	auto-build release notes from Conventional Commits	write v1.5 release notes from git history	git-tag-release	1
+q051	encode this binary as base64	turn a small file into a one-line base64 string	inline an image into a data URI	base64-codec	2
+q051	encode this binary as base64	turn a small file into a one-line base64 string	inline an image into a data URI	qr-make	0
+q051	encode this binary as base64	turn a small file into a one-line base64 string	inline an image into a data URI	hexdump-window	1
+q052	find which process owns a TCP port	map port to PID and command	something is on 5432 but I do not know what	port-scan-local	2
+q052	find which process owns a TCP port	map port to PID and command	something is on 5432 but I do not know what	process-tree	1
+q053	convert XLSX to CSV preserving merged cells	extract a sheet from Excel as CSV	get tabular data out of a spreadsheet for processing	excel-to-csv	2
+q053	convert XLSX to CSV preserving merged cells	extract a sheet from Excel as CSV	get tabular data out of a spreadsheet for processing	csv-merge	0
+q054	audit who has SSH access to prod	find authorized_keys entries for ex-employees	clean up SSH keys still trusting offboarded users	ssh-key-audit	2
+q054	audit who has SSH access to prod	find authorized_keys entries for ex-employees	clean up SSH keys still trusting offboarded users	aws-iam-audit	1
+q055	scan kubernetes manifests for security issues	SAST rule pack for k8s yaml	check my helm charts for risky settings	sast-semgrep-scan	2
+q055	scan kubernetes manifests for security issues	SAST rule pack for k8s yaml	check my helm charts for risky settings	dep-vuln-scan	1
+q055	scan kubernetes manifests for security issues	SAST rule pack for k8s yaml	check my helm charts for risky settings	k8s-debug-pod	0
+# re-walk: additions discovered after corpus expansion to 78 fixtures
+q001	binary search the first bad commit	bisect regression in recent history	find which commit introduced the regression	flake-rerun	0
+q003	mirror local directory to S3 bucket	aws s3 sync with delete and exclude	upload built assets to S3 and remove orphans	aws-cloudfront-invalidate	1
+q004	docker build with BuildKit cache	cache-from cache-to remote registry layer cache	speed up CI docker builds by reusing cached layers	docker-prune-system	1
+q004	docker build with BuildKit cache	cache-from cache-to remote registry layer cache	speed up CI docker builds by reusing cached layers	dockerfile-multistage	1
+q005	deploy container image to Cloud Run	gcloud run deploy with env-vars-file	ship container to Google Cloud Run with env vars from .env	aws-lambda-deploy	1
+q007	find the commit that broke this	git which change introduced the bug	figure out when this regression appeared	git-blame-walk	1
+q011	rotate Stripe API key	cycle credentials in AWS Secrets Manager	swap out a leaked API key without breaking prod	gcp-secret-manager	1
+q014	outer-join two CSVs on a key column	stitch CSV files together on a shared id	combine users.csv and orders.csv into one table	csv-profile-stats	1
+q020	make my JSON readable for diffing	pretty-print and sort keys	clean up this minified JSON so I can compare it	yaml-pretty	1
+q020	make my JSON readable for diffing	pretty-print and sort keys	clean up this minified JSON so I can compare it	xml-prettify	1
+q022	container exits 137 immediately on start	pod OOMKilled in kubernetes	workload keeps getting killed by the cluster	k8s-port-forward	1
+q024	deduplicate rows in a single CSV file	collapse duplicate entries in one csv	clean up duplicate contacts in a CSV	csv-validate-schema	1
+q025	review a terraform plan before merge	render tf plan as a PR diff with cost	make terraform changes reviewable in a pull request	terraform-state-mv	1
+q025	review a terraform plan before merge	render tf plan as a PR diff with cost	make terraform changes reviewable in a pull request	helm-template-render	1
+q034	auto-detect test framework and run the suite	run tests without specifying tooling	just run all the tests in this project	pytest-benchmark	1
+q037	my postgres database is suddenly slow	lots of dead tuples after big delete	queries are dragging since the cleanup job ran	db-migrate-up	1
+q038	follow errors from a systemd service	window of journalctl entries for one unit	pull logs for nginx during the incident	loki-logql-query	1
+q054	audit who has SSH access to prod	find authorized_keys entries for ex-employees	clean up SSH keys still trusting offboarded users	tls-cert-inspect	1

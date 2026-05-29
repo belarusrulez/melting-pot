@@ -1,0 +1,319 @@
+#!/bin/sh
+# mp:list — flat inventory of every skill the pot can see.
+#
+# Walks the union of registered (~/.melt/repos.patterns) + overlay (~/.melt/<skill>/).
+# One row per skill. Columns: name, dirname, origin, tiers_present, chunk_count,
+# patches_count, patches_failed_count, description, path.
+#
+# Flags:
+#   --format text|tsv|json    output format (default: text)
+#   --root <abs-root>         restrict to one registered root (repeatable)
+#   --name <glob|re:regex>    filter by skill DIRNAME (alias: --match)
+#   --names-only              emit just frontmatter `name:` per line
+#   --count                   print total count and exit
+#   -h|--help                 usage
+#
+# Exit: 0=listed >=1, 1=empty, 2=config error.
+
+set -eu
+
+MP_HOME="${MP_HOME:-$HOME/.melt}"
+MP_PATTERNS="${MP_PATTERNS:-$MP_HOME/repos.patterns}"
+
+# Resolve script dir → load shared helpers, following symlinks (BSD-portable).
+mp_resolve() {
+  p="$1"
+  while [ -L "$p" ]; do
+    target=$(readlink "$p")
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf "%s\n" "$p"
+}
+SCRIPT_REAL=$(mp_resolve "$0")
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_REAL")" && pwd)
+MP_LIB_DIR="${MP_LIB_DIR:-$SCRIPT_DIR/../lib}"
+for f in discover.sh tier.sh patch.sh; do
+  if [ ! -f "$MP_LIB_DIR/$f" ]; then
+    printf 'ERROR: missing helper library: %s\n' "$MP_LIB_DIR/$f" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  . "$MP_LIB_DIR/$f"
+done
+
+usage() {
+  cat <<'EOF'
+usage: action [--format text|tsv|json] [--root <abs-root>] [--name <glob|re:regex>]
+              [--names-only] [--count]
+
+  --format       text (default) | tsv | json
+  --root         restrict to one registered root (repeatable)
+  --name         filter by skill dirname; glob default, prefix re: for regex
+                 (--match is accepted as a synonym)
+  --names-only   emit just the frontmatter `name:` per line
+  --count        print total count and exit
+
+Columns (tsv / json):
+  name  dirname  origin(reg|ovl|mix)  tiers_present  chunk_count
+  patches_count  patches_failed_count  description  path
+
+exit: 0=listed >=1, 1=empty, 2=config
+EOF
+}
+
+# ----- parse flags -----
+format=text
+name_filter=""
+names_only=0
+count_only=0
+roots_filter_file=$(mktemp -t mp_list_roots.XXXXXX)
+: > "$roots_filter_file"
+trap 'rm -f "$roots_filter_file" 2>/dev/null' EXIT INT TERM
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --format)     format="${2:?--format needs value}"; shift 2 ;;
+    --format=*)   format="${1#--format=}"; shift ;;
+    --root)       printf "%s\n" "${2:?--root needs value}" >> "$roots_filter_file"; shift 2 ;;
+    --root=*)     printf "%s\n" "${1#--root=}" >> "$roots_filter_file"; shift ;;
+    --name|--match)     name_filter="${2:?--name needs value}"; shift 2 ;;
+    --name=*)     name_filter="${1#--name=}"; shift ;;
+    --match=*)    name_filter="${1#--match=}"; shift ;;
+    --names-only) names_only=1; shift ;;
+    --count)      count_only=1; shift ;;
+    --) shift; break ;;
+    -*) mp_err "unknown flag: $1"; usage >&2; exit 2 ;;
+    *)  mp_err "unexpected argument: $1"; usage >&2; exit 2 ;;
+  esac
+done
+
+case "$format" in text|tsv|json) ;; *) mp_err "unknown format: $format"; exit 2 ;; esac
+
+# ----- match_dirname <basename>: 0 if matches --name filter (or no filter) -----
+match_dirname() {
+  b="$1"
+  [ -z "$name_filter" ] && return 0
+  case "$name_filter" in
+    re:*)
+      regex="${name_filter#re:}"
+      printf "%s\n" "$b" | grep -E -q -- "$regex"
+      ;;
+    *)
+      # shellcheck disable=SC2254
+      case "$b" in
+        $name_filter) return 0 ;;
+        *)            return 1 ;;
+      esac
+      ;;
+  esac
+}
+
+root_allowed() {
+  [ ! -s "$roots_filter_file" ] && return 0
+  grep -Fxq -- "$1" "$roots_filter_file"
+}
+
+# Build the set of registered roots (expanded).
+roots_file=$(mktemp -t mp_list_allroots.XXXXXX)
+trap 'rm -f "$roots_filter_file" "$roots_file" 2>/dev/null' EXIT INT TERM
+if [ -f "$MP_PATTERNS" ]; then
+  mp_parse_patterns | awk -F'\t' '{ print $1 }' | while read -r r; do
+    mp_expand_root "$r"
+  done | sort -u > "$roots_file"
+else
+  : > "$roots_file"
+fi
+
+# Validate any --root values are actually registered.
+if [ -s "$roots_filter_file" ]; then
+  while IFS= read -r r; do
+    if ! grep -Fxq -- "$r" "$roots_file"; then
+      mp_warn "--root not in $MP_PATTERNS: $r"
+    fi
+  done < "$roots_filter_file"
+fi
+
+# Attribute a skill row to a registered root (longest-prefix wins).
+#
+# Args: <path> <origin> <dirname>
+#
+# - If path lives under a registered root directly, use that root.
+# - If path lives under $MP_HOME (overlay): for origin=ovl, attribute to
+#   $MP_HOME; for origin=reg|mix, the path was rewritten to the overlay by
+#   discover.sh (Q-007 symlinks) — look up the actual upstream root via
+#   repos.patterns by dirname.
+attribute_root() {
+  d="$1"; origin_v="$2"; dirname_v="$3"
+  best=""
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    case "$d/" in
+      "$r"/*)
+        if [ ${#r} -gt ${#best} ]; then best="$r"; fi
+        ;;
+    esac
+  done < "$roots_file"
+  if [ -n "$best" ]; then
+    printf "%s\n" "$best"
+    return 0
+  fi
+  case "$d/" in
+    "${MP_HOME%/}"/*)
+      if [ "$origin_v" = "reg" ] || [ "$origin_v" = "mix" ]; then
+        # Path rewritten to overlay; find the actual upstream root.
+        while IFS= read -r r; do
+          [ -n "$r" ] || continue
+          if [ -d "$r/$dirname_v" ]; then
+            printf "%s\n" "$r"
+            return 0
+          fi
+        done < "$roots_file"
+      fi
+      printf "%s\n" "${MP_HOME%/}"
+      return 0
+      ;;
+  esac
+  printf "%s\n" ""
+}
+
+# Run discovery once. Each row: <path>\t<origin>\t<kind>
+disc_file=$(mktemp -t mp_list_disc.XXXXXX)
+trap 'rm -f "$roots_filter_file" "$roots_file" "$disc_file" 2>/dev/null' EXIT INT TERM
+mp_discover_skills > "$disc_file" 2>/dev/null || true
+
+# Build the filtered row file:
+# name<TAB>dirname<TAB>origin<TAB>tiers_present<TAB>chunk_count<TAB>patches_count<TAB>patches_failed_count<TAB>description<TAB>path<TAB>root
+rows_file=$(mktemp -t mp_list_rows.XXXXXX)
+trap 'rm -f "$roots_filter_file" "$roots_file" "$disc_file" "$rows_file" 2>/dev/null' EXIT INT TERM
+: > "$rows_file"
+
+while IFS=$(printf '\t') read -r path origin kind; do
+  [ -n "${path:-}" ] || continue
+  [ -d "$path" ] || continue
+  dirname_v=$(basename "$path")
+  match_dirname "$dirname_v" || continue
+  root_v=$(attribute_root "$path" "$origin" "$dirname_v")
+  [ -n "$root_v" ] || continue
+  root_allowed "$root_v" || continue
+
+  # Manifest may live at $path OR (for a mix-origin reg-legacy skill where the
+  # overlay only carries patches) at the registered upstream path.
+  manifest=$(mp_manifest_path "$path")
+  if [ -z "$manifest" ] && { [ "$origin" = "mix" ] || [ "$origin" = "reg" ]; }; then
+    ups=""
+    while IFS=$(printf '\t') read -r reg_root pat; do
+      [ -n "$reg_root" ] || continue
+      reg_e=$(mp_expand_root "$reg_root")
+      if [ -d "$reg_e/$dirname_v" ]; then
+        ups="$reg_e/$dirname_v"
+        break
+      fi
+    done <<EOF
+$(mp_parse_patterns)
+EOF
+    if [ -n "$ups" ]; then
+      cand=$(mp_manifest_path "$ups")
+      [ -n "$cand" ] && manifest="$cand"
+    fi
+  fi
+
+  name_v=""
+  desc_v=""
+  if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+    name_v=$(mp_fm_field name "$manifest")
+    desc_v=$(mp_fm_field description "$manifest")
+  fi
+  [ -z "$name_v" ] && name_v=$(mp_name_from_dirname "$dirname_v")
+
+  tiers_present=$(mp_list_tiers_present "$path")
+  # tiers_present rendered with suffix; if empty (legacy only), call it "legacy".
+  if [ -n "$tiers_present" ]; then
+    tiers_disp="[${tiers_present}]-melting-pot"
+  else
+    tiers_disp="legacy"
+  fi
+
+  chunk_count=$(mp_count_chunks "$path")
+  patches_count=$(mp_count_patches "$dirname_v")
+  patches_failed=$(mp_count_failed_markers "$dirname_v")
+
+  # Replace TAB/newline in fields with spaces so TSV stays well-formed.
+  name_v=$(printf "%s" "$name_v" | tr '\t\n' '  ')
+  desc_v=$(printf "%s" "$desc_v" | tr '\t\n' '  ')
+
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    "$name_v" "$dirname_v" "$origin" "$tiers_disp" "$chunk_count" \
+    "$patches_count" "$patches_failed" "$desc_v" "$path" "$root_v" \
+    >> "$rows_file"
+done < "$disc_file"
+
+# Sort by origin (reg/ovl/mix), then root, then name.
+sort -t "$(printf '\t')" -k3,3 -k10,10 -k1,1 "$rows_file" -o "$rows_file"
+
+total=$(wc -l < "$rows_file" | tr -d ' ')
+
+if [ "$count_only" -eq 1 ]; then
+  printf "%s\n" "$total"
+  [ "$total" -gt 0 ] && exit 0 || exit 1
+fi
+
+if [ "$total" -eq 0 ]; then
+  case "$format" in
+    json) printf '{"results":[],"count":0}\n' ;;
+    tsv)  : ;;
+    text) printf "no skills discovered.\n" ;;
+  esac
+  exit 1
+fi
+
+if [ "$names_only" -eq 1 ]; then
+  awk -F'\t' '{ print $1 }' "$rows_file"
+  exit 0
+fi
+
+case "$format" in
+  tsv)
+    cat "$rows_file"
+    ;;
+  json)
+    printf '{"results":['
+    first=1
+    while IFS=$(printf '\t') read -r name dirname origin tiers_disp chunk_count patches_count patches_failed description path root; do
+      je() { printf "%s" "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+      [ "$first" -eq 1 ] && first=0 || printf ','
+      printf '{"name":"%s","dirname":"%s","origin":"%s","tiers_present":"%s","chunk_count":%s,"patches_count":%s,"patches_failed_count":%s,"description":"%s","path":"%s","root":"%s"}' \
+        "$(je "$name")" "$(je "$dirname")" "$(je "$origin")" "$(je "$tiers_disp")" \
+        "$chunk_count" "$patches_count" "$patches_failed" \
+        "$(je "$description")" "$(je "$path")" "$(je "$root")"
+    done < "$rows_file"
+    printf '],"count":%s}\n' "$total"
+    ;;
+  text)
+    # Group by origin → root.
+    uniq_groups=$(mktemp -t mp_list_groups.XXXXXX)
+    awk -F'\t' '{ printf "%s\t%s\n", $3, $10 }' "$rows_file" | awk '!seen[$0]++' > "$uniq_groups"
+    root_count=0
+    while IFS=$(printf '\t') read -r origin_v root_v; do
+      root_count=$((root_count + 1))
+      n_in_group=$(awk -F'\t' -v o="$origin_v" -v r="$root_v" '$3 == o && $10 == r { c++ } END { print c+0 }' "$rows_file")
+      printf "[%s] %s (%s skill%s)\n" "$origin_v" "$root_v" "$n_in_group" \
+        "$( [ "$n_in_group" -eq 1 ] && printf "" || printf "s")"
+      awk -F'\t' -v o="$origin_v" -v r="$root_v" '$3 == o && $10 == r {
+        desc = $8
+        if (length(desc) > 60) desc = substr(desc, 1, 57) "..."
+        printf "  %-22s %s\n", $1, desc
+        printf "    tiers=%s chunks=%s patches=%s failed=%s\n", $4, $5, $6, $7
+        printf "    → %s\n", $9
+      }' "$rows_file"
+      printf "\n"
+    done < "$uniq_groups"
+    rm -f "$uniq_groups"
+    printf "total: %s skill(s) across %s group(s)\n" "$total" "$root_count"
+    ;;
+esac
+
+exit 0

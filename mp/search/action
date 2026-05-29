@@ -1,0 +1,661 @@
+#!/bin/sh
+# mp:search — three-axis skill search via SQLite FTS5 + Reciprocal Rank Fusion.
+#
+# Adapted from sc/search/action; extended for melting-pot's two-layer storage,
+# N-melting-pot/ tier dirs, in-memory git-patch apply, and per-skill metadata
+# columns (origin, avg_tier, hits, patches_applied, patches_failed).
+#
+# Subcommands:
+#   search <q1> [q2] [q3] ...   multi-axis RRF search (default if first arg
+#                               looks like a query)
+#   reindex                     rebuild FTS5 index atomically
+#   list-roots                  print resolved roots from ~/.melt/repos.patterns
+#   doctor [--write-sample]     validate config; optionally seed a starter file
+#
+# Bare `action q1 q2 q3` is equivalent to `action search q1 q2 q3`.
+#
+# Exit codes:
+#   0  hits returned
+#   1  no hits
+#   2  config error (missing/invalid $MP_PATTERNS)
+#   3  index error (sqlite/FTS5 failure)
+#
+# Reads ONLY $MP_PATTERNS (default ~/.melt/repos.patterns); NO fallback to
+# ~/.sc/ (Q-008).
+
+set -eu
+
+MP_HOME="${MP_HOME:-$HOME/.melt}"
+MP_PATTERNS="${MP_PATTERNS:-$MP_HOME/repos.patterns}"
+MP_SEARCH_DIR="$MP_HOME/search"
+MP_INDEX="$MP_SEARCH_DIR/index.db"
+MP_INDEX_TMP="$MP_SEARCH_DIR/index.db.tmp"
+MP_INDEX_HASH="$MP_SEARCH_DIR/.index_hash"
+MP_LAST_Q="$MP_SEARCH_DIR/.last_queries"
+
+export MP_HOME MP_PATTERNS
+
+# Resolve script dir → load shared helpers, following symlinks so that
+# invocation via ~/.melt/search/action (a symlink to the real source) still
+# finds the sibling lib/ dir.
+mp_resolve() {
+  p="$1"
+  while [ -L "$p" ]; do
+    target=$(readlink "$p")
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf "%s\n" "$p"
+}
+SCRIPT_REAL=$(mp_resolve "$0")
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_REAL")" && pwd)
+MP_LIB_DIR="${MP_LIB_DIR:-$SCRIPT_DIR/../lib}"
+for f in discover.sh tier.sh patch.sh compose.sh; do
+  if [ ! -f "$MP_LIB_DIR/$f" ]; then
+    printf 'ERROR: missing helper library: %s/%s\n' "$MP_LIB_DIR" "$f" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  . "$MP_LIB_DIR/$f"
+done
+
+# Local aliases for readability.
+warn() { mp_warn "$@"; }
+err()  { mp_err "$@"; }
+
+# ----- escape_fts_q: sanitize query for FTS5 MATCH (OR-joined tokens) -----
+# Lifted verbatim from sc/search/action.
+escape_fts_q() {
+  printf "%s" "$1" | awk '
+    {
+      out = ""
+      for (i = 1; i <= NF; i++) {
+        t = $i
+        gsub(/"/, "", t)
+        if (t == "") continue
+        if (out != "") out = out " OR "
+        out = out "\"" t "\""
+      }
+      print out
+    }
+  '
+}
+
+# ----- _gather_skill_content <overlay-skill-dir> <skill-basename> <out-file> <manifest-path> -----
+# Writes the union of chunk bodies (across all N-melting-pot/ tiers, with -L so
+# symlinked upstream dirs are walked) + the (possibly patched) manifest body to
+# <out-file>. Updates MP_PATCH_APPLIED / MP_PATCH_FAILED in the caller's shell
+# (no pipes — uses tmp file boundaries so env vars survive).
+_mp_gather_skill_content() {
+  d="$1"; basename_v="$2"; out="$3"; manifest="$4"
+  : > "$out"
+  for n in 0 1 2 3 4 5; do
+    td="$d/${n}-melting-pot"
+    [ -d "$td" ] || continue
+    find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+      | sort \
+      | while IFS= read -r f; do
+          mp_body_after_fm "$f"
+          printf "\n"
+        done >> "$out"
+  done
+  # Reset env vars before the apply so callers see a clean signal.
+  MP_PATCH_APPLIED=""
+  MP_PATCH_FAILED=""
+  export MP_PATCH_APPLIED MP_PATCH_FAILED
+  if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+    case "$manifest" in
+      */SKILL.md)
+        patched_tmp=$(mktemp -t mp_patched.XXXXXX)
+        # Run apply in the current shell (not in a pipe) so MP_PATCH_* survive.
+        mp_apply_in_memory "$basename_v" "$manifest" > "$patched_tmp" 2>/dev/null
+        mp_body_after_fm "$patched_tmp" >> "$out"
+        rm -f "$patched_tmp"
+        ;;
+      *)
+        mp_body_after_fm "$manifest" >> "$out"
+        ;;
+    esac
+  fi
+}
+
+# ----- reindex: rebuild FTS5 index atomically -----
+cmd_reindex() {
+  for arg in "$@"; do
+    case "$arg" in
+      --full) : ;;
+      *) err "unknown reindex flag: $arg"; return 1 ;;
+    esac
+  done
+  mkdir -p "$MP_SEARCH_DIR"
+  rm -f "$MP_INDEX_TMP"
+
+  # Schema: FTS5 with unindexed sidecar columns for metadata. `content` is the
+  # patched-union blob; `description` is the manifest description.
+  sqlite3 "$MP_INDEX_TMP" <<'SQL' || { err "failed to create index schema"; return 3; }
+CREATE VIRTUAL TABLE skills USING fts5(
+  name, dirname, path UNINDEXED,
+  description, content,
+  origin UNINDEXED,
+  avg_tier UNINDEXED,
+  hits UNINDEXED,
+  patches_applied UNINDEXED,
+  patches_failed UNINDEXED,
+  tokenize='unicode61'
+);
+SQL
+
+  # Materialize discovery output to a tmpfile so the loop runs in this shell
+  # (the var assignments below need to persist beyond the loop).
+  dirs_file=$(mktemp -t mp_dirs.XXXXXX)
+  mp_discover_skills > "$dirs_file" 2>/dev/null
+
+  count=0
+  fail=0
+  while IFS=$(printf '\t') read -r d origin kind; do
+    [ -n "$d" ] || continue
+    [ -d "$d" ] || continue
+    dirname_v=$(basename "$d")
+
+    # Manifest path lookup: meta.md → SKILL.md (in $d). If $d is overlay-only
+    # for a mix-origin legacy skill with no manifest at the overlay, fall back
+    # to the upstream registered location.
+    manifest=$(mp_manifest_path "$d")
+    if [ -z "$manifest" ]; then
+      # Walk registered roots looking for an identically-named dir with a
+      # manifest. Same logic compose.sh uses.
+      ups=$(mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+        root_e=$(mp_expand_root "$root")
+        if [ -d "$root_e/$dirname_v" ]; then
+          cand=$(mp_manifest_path "$root_e/$dirname_v")
+          if [ -n "$cand" ]; then
+            printf "%s\n" "$cand"
+            break
+          fi
+        fi
+      done | head -n 1)
+      [ -n "$ups" ] && manifest="$ups"
+    fi
+
+    name_v=""
+    desc_v=""
+    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+      name_v=$(mp_fm_field name "$manifest")
+      desc_v=$(mp_fm_field description "$manifest")
+    fi
+    [ -z "$name_v" ] && name_v=$(mp_name_from_dirname "$dirname_v")
+
+    # Gather content (chunks + patched manifest body). This sets
+    # MP_PATCH_APPLIED / MP_PATCH_FAILED in this shell as a side-effect.
+    body_file=$(mktemp -t mp_body.XXXXXX)
+    _mp_gather_skill_content "$d" "$dirname_v" "$body_file" "$manifest"
+    body_v=$(cat "$body_file")
+    rm -f "$body_file"
+
+    # Counts.
+    # shellcheck disable=SC2086
+    set -- ${MP_PATCH_APPLIED:-}
+    pa_n=$#
+    # shellcheck disable=SC2086
+    set -- ${MP_PATCH_FAILED:-}
+    pf_n=$#
+    # Also count any .failed/ markers already on disk (so re-runs after a fix
+    # still surface historic failures the user hasn't cleared).
+    pf_disk=$(mp_count_failed_markers "$dirname_v")
+    if [ "$pf_disk" -gt "$pf_n" ]; then
+      pf_n=$pf_disk
+    fi
+
+    avg_v=$(mp_avg_tier "$d")
+    hits_v=$(mp_hits_summary "$d")
+    # For mix/reg-origin skills whose manifest is a SKILL.md living upstream
+    # (not at $d) and no overlay tier content exists, mp_avg_tier / hits would
+    # be empty — fix that up so search output stays informative.
+    if [ -z "$avg_v" ] && [ -n "$manifest" ]; then
+      case "$manifest" in
+        */SKILL.md) avg_v="5.0"; hits_v="[5:1]" ;;
+      esac
+    fi
+
+    n_e=$(printf "%s"  "$name_v"     | mp_sql_esc)
+    dn_e=$(printf "%s" "$dirname_v"  | mp_sql_esc)
+    p_e=$(printf "%s"  "$d"          | mp_sql_esc)
+    de_e=$(printf "%s" "$desc_v"     | mp_sql_esc)
+    b_e=$(printf "%s"  "$body_v"     | mp_sql_esc)
+    o_e=$(printf "%s"  "$origin"     | mp_sql_esc)
+    a_e=$(printf "%s"  "$avg_v"      | mp_sql_esc)
+    h_e=$(printf "%s"  "$hits_v"     | mp_sql_esc)
+
+    if ! sqlite3 "$MP_INDEX_TMP" \
+      "INSERT INTO skills(name,dirname,path,description,content,origin,avg_tier,hits,patches_applied,patches_failed) \
+       VALUES ('$n_e','$dn_e','$p_e','$de_e','$b_e','$o_e','$a_e','$h_e',$pa_n,$pf_n);"; then
+      err "insert failed for $d"
+      fail=1
+      break
+    fi
+    count=$((count + 1))
+  done < "$dirs_file"
+  rm -f "$dirs_file"
+
+  if [ "$fail" -ne 0 ]; then
+    rm -f "$MP_INDEX_TMP"
+    return 3
+  fi
+
+  if [ "$count" -eq 0 ]; then
+    # An empty index is a valid state (no skills registered/overlay). Move the
+    # tmp into place so subsequent queries hit a real schema and return "no
+    # results" cleanly instead of an "index error".
+    mv "$MP_INDEX_TMP" "$MP_INDEX" || { err "atomic mv failed"; return 3; }
+    new_hash=$(mp_compute_skills_hash 2>/dev/null || true)
+    [ -n "$new_hash" ] && printf "%s\n" "$new_hash" > "$MP_INDEX_HASH"
+    printf "indexed 0 skill(s) into %s\n" "$MP_INDEX"
+    return 0
+  fi
+
+  mv "$MP_INDEX_TMP" "$MP_INDEX" || { err "atomic mv failed"; return 3; }
+  new_hash=$(mp_compute_skills_hash 2>/dev/null || true)
+  [ -n "$new_hash" ] && printf "%s\n" "$new_hash" > "$MP_INDEX_HASH"
+  printf "indexed %s skill(s) into %s\n" "$count" "$MP_INDEX"
+}
+
+# ----- compute_skills_hash: SHA-256 over <path>+<content> of everything indexed -----
+# Hash inputs (Q-001/Q-007 invariants):
+#   - manifest file paths + contents (meta.md or SKILL.md)
+#   - every chunk file path + contents across N-melting-pot/ tier dirs
+#     (find -L so symlinked upstream tiers are walked)
+#   - every patches/*.patch path + contents
+#   - every patches/.failed/* marker path + contents
+#   - every N-melting-pot/ symlink target (so re-pointed symlinks trigger reindex)
+mp_compute_skills_hash() {
+  dh_tmp=$(mktemp -t mp_hash.XXXXXX)
+  mp_discover_skills 2>/dev/null > "$dh_tmp"
+  while IFS=$(printf '\t') read -r d _origin _kind; do
+    [ -n "$d" ] || continue
+    [ -d "$d" ] || continue
+
+    # Manifest (may live at the overlay path OR fall back to upstream — same
+    # rule as cmd_reindex). Hash whichever resolves.
+    manifest=$(mp_manifest_path "$d")
+    if [ -z "$manifest" ]; then
+      b=$(basename "$d")
+      manifest=$(mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+        root_e=$(mp_expand_root "$root")
+        if [ -d "$root_e/$b" ]; then
+          cand=$(mp_manifest_path "$root_e/$b")
+          if [ -n "$cand" ]; then
+            printf "%s\n" "$cand"
+            break
+          fi
+        fi
+      done | head -n 1)
+    fi
+    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+      printf "M:%s\n" "$manifest"
+      cat "$manifest"
+      printf "\n"
+    fi
+
+    # Tier-dir chunks (with -L so symlinks are followed).
+    for n in 0 1 2 3 4 5; do
+      td="$d/${n}-melting-pot"
+      [ -e "$td" ] || continue
+      # Track the symlink target itself so re-points trigger reindex.
+      if [ -L "$td" ]; then
+        printf "L:%s->%s\n" "$td" "$(readlink "$td")"
+      fi
+      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+        | sort \
+        | while IFS= read -r f; do
+            printf "C:%s\n" "$f"
+            cat "$f"
+            printf "\n"
+          done
+    done
+
+    # Patches + .failed/ markers (overlay-only, basename-keyed).
+    b=$(basename "$d")
+    pd=$(mp_patches_dir "$b")
+    if [ -d "$pd" ]; then
+      find "$pd" -maxdepth 1 -type f -name '*.patch' 2>/dev/null \
+        | sort \
+        | while IFS= read -r p; do
+            printf "P:%s\n" "$p"
+            cat "$p"
+            printf "\n"
+          done
+    fi
+    fdir=$(mp_failed_dir "$b")
+    if [ -d "$fdir" ]; then
+      find "$fdir" -maxdepth 1 -type f -name '*.failed' 2>/dev/null \
+        | sort \
+        | while IFS= read -r p; do
+            printf "F:%s\n" "$p"
+            cat "$p"
+            printf "\n"
+          done
+    fi
+  done < "$dh_tmp" | shasum -a 256 | awk '{print $1}'
+  rm -f "$dh_tmp"
+}
+
+# ----- auto_reindex_if_changed: silent rebuild when content drifts -----
+# Best-effort: never returns non-zero. Defers config / discovery diagnostics
+# to the actual subcommand.
+auto_reindex_if_changed() {
+  [ -f "$MP_PATTERNS" ] || [ -d "$MP_HOME" ] || return 0
+
+  cur=$(mp_compute_skills_hash 2>/dev/null || true)
+  [ -n "$cur" ] || cur="empty"
+
+  stored=""
+  [ -f "$MP_INDEX_HASH" ] && stored=$(cat "$MP_INDEX_HASH" 2>/dev/null || true)
+
+  if [ ! -f "$MP_INDEX" ] || [ "$cur" != "$stored" ]; then
+    cmd_reindex >&2 || return 0
+  fi
+  return 0
+}
+
+# ----- ensure_index: rebuild if missing (defensive fallback) -----
+ensure_index() {
+  if [ ! -f "$MP_INDEX" ]; then
+    cmd_reindex >&2 || return 3
+  fi
+}
+
+# ----- cmd_search: multi-axis RRF search -----
+cmd_search() {
+  if [ "$#" -lt 1 ]; then
+    err "search requires at least one query string"
+    return 2
+  fi
+
+  limit=20
+  format=text
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --limit)    limit="${2:?--limit needs value}"; shift 2 ;;
+      --limit=*)  limit="${1#--limit=}"; shift ;;
+      --format)   format="${2:?--format needs value}"; shift 2 ;;
+      --format=*) format="${1#--format=}"; shift ;;
+      --) shift; break ;;
+      -*) err "unknown flag: $1"; return 2 ;;
+      *) break ;;
+    esac
+  done
+  case "$format" in text|tsv|json) ;; *) err "unknown format: $format"; return 2 ;; esac
+
+  if [ "$#" -lt 1 ]; then
+    err "search requires at least one query string"
+    return 2
+  fi
+  if [ "$#" -lt 3 ]; then
+    warn "fewer than 3 queries supplied ($# given); recommended: pass literal + synonym + intent axes"
+  fi
+
+  ensure_index || return 3
+
+  mkdir -p "$MP_SEARCH_DIR"
+  : > "$MP_LAST_Q"
+  for q in "$@"; do
+    printf "%s\n" "$q" >> "$MP_LAST_Q"
+  done
+
+  sql_file="$(mktemp -t mp_search.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -f \"$sql_file\"" EXIT INT TERM
+
+  {
+    printf "CREATE TEMP TABLE ranks(path TEXT, rnk INTEGER);\n"
+    for q in "$@"; do
+      fq=$(escape_fts_q "$q")
+      [ -z "$fq" ] && continue
+      fq_e=$(printf "%s" "$fq" | mp_sql_esc)
+      printf "INSERT INTO ranks(path, rnk)\n"
+      printf "SELECT path, rnk FROM (\n"
+      printf "  SELECT path, ROW_NUMBER() OVER (ORDER BY bm25(skills, 10, 8, 5, 4)) AS rnk\n"
+      printf "  FROM skills WHERE skills MATCH '%s'\n" "$fq_e"
+      printf ") WHERE rnk <= 5;\n"
+    done
+    printf ".mode tabs\n"
+    printf "SELECT r.path,\n"
+    printf "       (SELECT name            FROM skills s WHERE s.path = r.path) AS name,\n"
+    printf "       (SELECT dirname         FROM skills s WHERE s.path = r.path) AS dirname,\n"
+    printf "       (SELECT description     FROM skills s WHERE s.path = r.path) AS description,\n"
+    printf "       SUM(1.0 / (10.0 + r.rnk)) AS score,\n"
+    printf "       COUNT(*) AS axes,\n"
+    printf "       (SELECT origin          FROM skills s WHERE s.path = r.path) AS origin,\n"
+    printf "       (SELECT avg_tier        FROM skills s WHERE s.path = r.path) AS avg_tier,\n"
+    printf "       (SELECT hits            FROM skills s WHERE s.path = r.path) AS hits,\n"
+    printf "       (SELECT patches_applied FROM skills s WHERE s.path = r.path) AS patches_applied,\n"
+    printf "       (SELECT patches_failed  FROM skills s WHERE s.path = r.path) AS patches_failed\n"
+    printf "FROM ranks r\n"
+    printf "GROUP BY r.path\n"
+    printf "ORDER BY score DESC, axes DESC, name ASC\n"
+    printf "LIMIT %s;\n" "$limit"
+  } > "$sql_file"
+
+  results=$(sqlite3 "$MP_INDEX" < "$sql_file" 2>/dev/null) || {
+    err "sqlite query failed"
+    rm -f "$sql_file"
+    return 3
+  }
+  rm -f "$sql_file"
+  trap - EXIT INT TERM
+
+  if [ -z "$results" ]; then
+    case "$format" in
+      json) printf '{"results":[]}\n' ;;
+      tsv)  : ;;
+      text) printf "no skills matched.\n" ;;
+    esac
+    return 1
+  fi
+
+  case "$format" in
+    tsv)
+      printf "%s\n" "$results"
+      ;;
+    json)
+      printf '{"results":['
+      first=1
+      printf "%s\n" "$results" | while IFS=$(printf '\t') read path name dirname description score axes origin avg_tier hits patches_applied patches_failed; do
+        [ -n "$path" ] || continue
+        je() { printf "%s" "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+        if [ "$first" -eq 1 ]; then first=0; else printf ","; fi
+        printf '{"path":"%s","name":"%s","dirname":"%s","description":"%s","score":%s,"axes":%s,"origin":"%s","avg_tier":"%s","hits":"%s","patches_applied":%s,"patches_failed":%s}' \
+          "$(je "$path")" "$(je "$name")" "$(je "$dirname")" "$(je "$description")" \
+          "$score" "$axes" "$(je "$origin")" "$(je "$avg_tier")" "$(je "$hits")" \
+          "$patches_applied" "$patches_failed"
+      done
+      printf ']}\n'
+      ;;
+    text)
+      conv=$(printf "%s\n" "$results" | awk -F'\t' '$6 >= 2')
+      single=$(printf "%s\n" "$results" | awk -F'\t' '$6 < 2')
+
+      printf "## Convergence (matched 2+ axes — strongest signal)\n"
+      if [ -z "$conv" ]; then
+        printf "  (none)\n"
+      else
+        printf "%s\n" "$conv" | awk -F'\t' '{
+          desc = $4
+          if (length(desc) > 70) desc = substr(desc, 1, 67) "..."
+          name = $2; axes = $6; score = $5
+          origin = $7; avg = $8; hits = $9
+          pa = $10; pf = $11
+          printf "  %-22s axes=%s score=%.4f origin=%s avg_tier=%s hits=%s  %s\n", name, axes, score, origin, avg, hits, desc
+          if ((pa + 0) > 0 || (pf + 0) > 0) {
+            printf "           patches=%s applied", pa
+            if ((pf + 0) > 0) printf " [failed=%s]", pf
+            printf "\n"
+          }
+          printf "           → %s\n", $1
+        }'
+      fi
+
+      printf "\n## Single-axis hits\n"
+      if [ -z "$single" ]; then
+        printf "  (none)\n"
+      else
+        printf "%s\n" "$single" | awk -F'\t' '{
+          desc = $4
+          if (length(desc) > 70) desc = substr(desc, 1, 67) "..."
+          name = $2; axes = $6; score = $5
+          origin = $7; avg = $8; hits = $9
+          pa = $10; pf = $11
+          printf "  %-22s axes=%s score=%.4f origin=%s avg_tier=%s hits=%s  %s\n", name, axes, score, origin, avg, hits, desc
+          if ((pa + 0) > 0 || (pf + 0) > 0) {
+            printf "           patches=%s applied", pa
+            if ((pf + 0) > 0) printf " [failed=%s]", pf
+            printf "\n"
+          }
+          printf "           → %s\n", $1
+        }'
+      fi
+      printf "\n(→ shows the full path to the skill dir — open meta.md / SKILL.md to use it)\n"
+      ;;
+  esac
+  return 0
+}
+
+# ----- cmd_list_roots -----
+cmd_list_roots() {
+  if [ ! -f "$MP_PATTERNS" ]; then
+    err "no $MP_PATTERNS — run: action doctor --write-sample"
+    return 2
+  fi
+  mp_parse_patterns | awk -F'\t' '{ print $1 }' | sort -u | while read r; do
+    mp_expand_root "$r"
+  done
+}
+
+# ----- cmd_doctor -----
+cmd_doctor() {
+  write_sample=0
+  for arg in "$@"; do
+    case "$arg" in
+      --write-sample) write_sample=1 ;;
+      *) err "unknown doctor flag: $arg"; return 2 ;;
+    esac
+  done
+
+  mkdir -p "$MP_HOME" "$MP_SEARCH_DIR"
+
+  if [ "$write_sample" -eq 1 ]; then
+    if [ -f "$MP_PATTERNS" ]; then
+      printf "exists: %s (not overwriting)\n" "$MP_PATTERNS"
+    else
+      cat > "$MP_PATTERNS" <<'EOF'
+# ~/.melt/repos.patterns — skill discovery sources for melting-pot.
+#
+# One entry per line. Format:
+#   <abs-root><TAB or whitespace><pattern>
+#
+# Pattern matches the skill directory's BASENAME.
+# Default = glob (e.g. "*"). Prefix with "re:" for an extended regex.
+# Lines starting with '#' are ignored. Blank lines ignored.
+#
+# melting-pot reads ONLY this file (Q-008 clean fork). No fallback to ~/.sc/.
+#
+# Examples:
+#   /Users/me/Projects/my-skills	*
+#   /Users/me/Projects/skill-core/mp	*
+#   /Users/me/Projects/other-repo/skills	re:^(foo|bar)-.*$
+#
+/Users/me/Projects/my-skills	*
+EOF
+      printf "wrote sample: %s\n" "$MP_PATTERNS"
+    fi
+  fi
+
+  rc=0
+  if [ ! -f "$MP_PATTERNS" ]; then
+    err "missing $MP_PATTERNS"
+    err "run: action doctor --write-sample"
+    return 2
+  fi
+
+  printf "checking %s ...\n" "$MP_PATTERNS"
+  seen=$(mktemp -t mp_seen.XXXXXX)
+  pat_lines=$(mktemp -t mp_pats.XXXXXX)
+  : > "$seen"
+  mp_parse_patterns > "$pat_lines"
+  while IFS=$(printf '\t') read -r root pat; do
+    root_e=$(mp_expand_root "$root")
+    if grep -Fxq -- "$root_e" "$seen" 2>/dev/null; then
+      printf "  WARN duplicate root: %s\n" "$root_e" >&2
+    else
+      printf "%s\n" "$root_e" >> "$seen"
+    fi
+    if [ ! -d "$root_e" ]; then
+      printf "  WARN root does not exist: %s\n" "$root_e" >&2
+    else
+      printf "  OK   %s  pattern=%s\n" "$root_e" "$pat"
+    fi
+    case "$pat" in
+      re:.\**) printf "  WARN heavy regex (starts with .*) may be slow: %s\n" "$pat" >&2 ;;
+    esac
+  done < "$pat_lines"
+  rm -f "$seen" "$pat_lines"
+
+  printf "\nindex: %s\n" "$MP_INDEX"
+  if [ -f "$MP_INDEX" ]; then
+    cnt=$(sqlite3 "$MP_INDEX" 'SELECT COUNT(*) FROM skills;' 2>/dev/null || echo "?")
+    printf "  %s skill(s) indexed\n" "$cnt"
+  else
+    printf "  (not built — run: action reindex)\n"
+  fi
+  return "$rc"
+}
+
+# ----- usage -----
+usage() {
+  cat <<'EOF'
+usage: action <subcommand> [args]
+       action <q1> [q2] [q3]      # shorthand for `action search ...`
+
+  search [--limit N] [--format text|tsv|json] <q1> [q2] [q3] ...
+                              multi-axis RRF search; >=3 queries recommended
+  reindex                     rebuild FTS5 index atomically
+  list-roots                  print resolved roots from ~/.melt/repos.patterns
+  doctor [--write-sample]     validate config; --write-sample seeds a starter
+
+exit: 0=hits, 1=no hits, 2=config, 3=index
+EOF
+}
+
+# ----- dispatch -----
+main() {
+  if [ "$#" -eq 0 ]; then
+    usage
+    return 2
+  fi
+
+  case "$1" in
+    -h|--help|help|reindex) ;;
+    *) auto_reindex_if_changed ;;
+  esac
+
+  case "$1" in
+    -h|--help|help)
+      usage; return 0 ;;
+    search)
+      shift; cmd_search "$@" ;;
+    reindex)
+      shift; cmd_reindex "$@" ;;
+    list-roots|list_roots|roots)
+      shift; cmd_list_roots "$@" ;;
+    doctor)
+      shift; cmd_doctor "$@" ;;
+    --*)
+      cmd_search "$@" ;;
+    *)
+      cmd_search "$@" ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,641 @@
+#!/bin/sh
+# mp:crud — deterministic helpers for lifecycle ops on skills + patches.
+#
+# Subcommands:
+#   collision-check <dirname>             exit 0=ok, 1=collision (prints colliding paths)
+#   scaffold <name> [--legacy|--native]   scaffold a new skill (default: native six-tier
+#                                         under ~/.melt/<name>/ with 0-melting-pot/ seeded;
+#                                         --legacy writes a flat <name>/SKILL.md target)
+#   validate <skill-name|dir>             check structure; exit 0=ok, 1=issues
+#   trash <skill-name|dir>                soft-delete to ~/.melt/.trash/<ts>-<name>/
+#   restore <trash-entry>                 mv back to orig_path from meta JSON
+#   import-preview <root>                 TSV: path<TAB>name<TAB>description<TAB>tiers<TAB>issues
+#   patch-add <skill> <patch-file>        copy patch into overlay; renumber to next slot
+#   patch-list <skill>                    list patches with apply status
+#   patch-remove <skill> <patch-id>       remove patch + matching .failed marker
+#   patch-validate <skill>                dry-run apply all patches (read-only)
+#
+# Mutating subcommands accept --dry-run. Exit: 0=ok, 1=problem, 2=usage.
+
+set -eu
+
+MP_HOME="${MP_HOME:-$HOME/.melt}"
+MP_PATTERNS="${MP_PATTERNS:-$MP_HOME/repos.patterns}"
+MP_TRASH="${MP_TRASH:-$MP_HOME/.trash}"
+
+mp_resolve() {
+  p="$1"
+  while [ -L "$p" ]; do
+    target=$(readlink "$p")
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf "%s\n" "$p"
+}
+SCRIPT_REAL=$(mp_resolve "$0")
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_REAL")" && pwd)
+MP_LIB_DIR="${MP_LIB_DIR:-$SCRIPT_DIR/../lib}"
+for f in discover.sh tier.sh patch.sh; do
+  if [ ! -f "$MP_LIB_DIR/$f" ]; then
+    printf 'ERROR: missing helper library: %s\n' "$MP_LIB_DIR/$f" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  . "$MP_LIB_DIR/$f"
+done
+
+usage() {
+  cat <<'EOF'
+usage: action <subcommand> [args] [--dry-run]
+
+  collision-check <dirname>
+  scaffold <name> [--legacy|--native] [--target-dir <dir>] [--dry-run]
+  validate <skill-name|dir>
+  trash <skill-name|dir> [--dry-run]
+  restore <trash-entry> [--dry-run]
+  import-preview <root>
+  patch-add <skill> <patch-file> [--dry-run]
+  patch-list <skill>
+  patch-remove <skill> <patch-id> [--dry-run]
+  patch-validate <skill>
+
+exit: 0=ok, 1=problem, 2=usage/config
+EOF
+}
+
+# ----- resolve a skill argument (basename or absolute dir) to a directory -----
+# Search order: <arg> as-is (if directory), $MP_HOME/<arg>, discovery lookup by
+# basename. Returns directory on stdout; exit 1 if none found.
+resolve_skill_dir() {
+  arg="$1"
+  if [ -d "$arg" ]; then
+    cd "$arg" && pwd
+    return 0
+  fi
+  if [ -d "$MP_HOME/$arg" ]; then
+    printf "%s\n" "$MP_HOME/$arg"
+    return 0
+  fi
+  hit=$(mp_discover_skills 2>/dev/null | awk -F'\t' -v b="$arg" '
+    { n = split($1, parts, "/"); if (parts[n] == b) { print $1; exit } }
+  ')
+  if [ -n "$hit" ]; then
+    printf "%s\n" "$hit"
+    return 0
+  fi
+  return 1
+}
+
+# ----- collision-check -----
+cmd_collision_check() {
+  dirname="${1:?dirname required}"
+  hits_file=$(mktemp -t mp_crud_hits.XXXXXX)
+  : > "$hits_file"
+  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
+    [ "$(basename "$d")" = "$dirname" ] && printf "%s\n" "$d"
+    :
+  done > "$hits_file"
+  if [ -s "$hits_file" ]; then
+    mp_warn "collision: skill basename '$dirname' already exists at:"
+    cat "$hits_file" >&2
+    rm -f "$hits_file"
+    return 1
+  fi
+  rm -f "$hits_file"
+  return 0
+}
+
+# ----- scaffold -----
+# Default: native six-tier under $MP_HOME/<name>/ with meta.md + 0-melting-pot/first.md.
+# --legacy: flat <target>/SKILL.md (for third-party-registry compatibility); target
+#           defaults to $MP_HOME/<name> but --target-dir overrides.
+# --target-dir <dir>: override the destination (mainly useful for --legacy into a
+#                     registered upstream repo's tree).
+cmd_scaffold() {
+  raw_name=""
+  mode=native
+  target_dir=""
+  dry_run=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --native)     mode=native; shift ;;
+      --legacy)     mode=legacy; shift ;;
+      --target-dir) target_dir="${2:?--target-dir needs value}"; shift 2 ;;
+      --target-dir=*) target_dir="${1#--target-dir=}"; shift ;;
+      --dry-run)    dry_run=1; shift ;;
+      -*) mp_err "scaffold: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$raw_name" ]; then raw_name="$1"; shift; else mp_err "scaffold: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  if [ -z "$raw_name" ]; then
+    mp_err "scaffold: name required"
+    return 2
+  fi
+  dirname="$raw_name"
+  name=$(mp_name_from_dirname "$dirname")
+  if [ -z "$target_dir" ]; then
+    target_dir="$MP_HOME/$dirname"
+  fi
+
+  if [ -e "$target_dir" ] && [ "$dry_run" -eq 0 ]; then
+    mp_err "scaffold: target exists: $target_dir"
+    return 1
+  fi
+
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN scaffold mode=%s name=%s target=%s\n" "$mode" "$name" "$target_dir"
+    case "$mode" in
+      native) printf "  would write: %s/meta.md\n" "$target_dir"
+              printf "  would write: %s/0-melting-pot/first.md\n" "$target_dir" ;;
+      legacy) printf "  would write: %s/SKILL.md\n" "$target_dir" ;;
+    esac
+    return 0
+  fi
+
+  mkdir -p "$target_dir"
+  today=$(date -u +%Y-%m-%d)
+  case "$mode" in
+    native)
+      cat > "$target_dir/meta.md" <<EOF
+---
+name: $name
+description: TODO — one trigger-style sentence describing what the skill does and WHEN to use it. Front-load synonyms users will type.
+user_invocable: true
+---
+
+# $name
+
+TODO — describe the procedure. Native six-tier layout: chunks live under
+\`N-melting-pot/\` directories (N in 0..5). New chunks ALWAYS land at tier 0.
+mp:learn promote/demote will move them based on use signals.
+
+Tier directories present:
+- \`0-melting-pot/\` — scrap (born here)
+- \`5-melting-pot/\` — pure alloy (system's current best guess)
+EOF
+      mkdir -p "$target_dir/0-melting-pot"
+      cat > "$target_dir/0-melting-pot/first.md" <<EOF
+---
+title: "first chunk"
+created: $today
+last_used: $today
+last_validated: $today
+use_count: 0
+provenance:
+  - source: hand-authored
+promote_when:
+  use_count_min: 3
+demote_when:
+  days_since_last_use_max: 90
+depends_on: []
+status_history:
+  - { tier: 0, at: $today, reason: "scaffolded" }
+---
+
+TODO — first chunk body. Replace this with the actual content.
+EOF
+      printf "scaffolded native: %s\n" "$target_dir"
+      printf "  meta.md             (name=%s)\n" "$name"
+      printf "  0-melting-pot/first.md\n"
+      ;;
+    legacy)
+      cat > "$target_dir/SKILL.md" <<EOF
+---
+name: $name
+description: TODO — one trigger-style sentence describing what the skill does and WHEN to use it. Front-load synonyms users will type.
+user_invocable: true
+---
+
+# $name
+
+TODO — describe the procedure. Legacy flat layout: one SKILL.md file. Treated
+as tier-5 content (pure alloy) by the search index.
+EOF
+      printf "scaffolded legacy: %s\n" "$target_dir"
+      printf "  SKILL.md            (name=%s)\n" "$name"
+      ;;
+  esac
+  printf "next: edit the TODOs, then run: sh \$0 validate %s\n" "$dirname"
+}
+
+# ----- validate <skill-name|dir> -----
+# Native checks: meta.md or SKILL.md present + frontmatter + name/desc;
+# tier dirs are named N-melting-pot/ ONLY (bare N/ → warning per Q-007);
+# every chunk has frontmatter;
+# every patch in patches/ parses;
+# every .failed/ marker has the expected envelope.
+cmd_validate() {
+  arg="${1:?skill required}"
+  d=$(resolve_skill_dir "$arg" 2>/dev/null || true)
+  if [ -z "$d" ] || [ ! -d "$d" ]; then
+    mp_err "validate: no such skill: $arg"
+    return 1
+  fi
+  issues=$(mktemp -t mp_crud_val.XXXXXX)
+  warns=$(mktemp -t mp_crud_warn.XXXXXX)
+  : > "$issues"; : > "$warns"
+
+  manifest=$(mp_manifest_path "$d")
+  if [ -z "$manifest" ]; then
+    printf "missing manifest: no meta.md or SKILL.md\n" >> "$issues"
+  else
+    if ! mp_has_frontmatter "$manifest"; then
+      printf "manifest has no frontmatter: %s\n" "$manifest" >> "$issues"
+    else
+      name_v=$(mp_fm_field name "$manifest")
+      desc_v=$(mp_fm_field description "$manifest")
+      [ -z "$name_v" ] && printf "frontmatter: name is empty in %s\n" "$manifest" >> "$issues"
+      [ -z "$desc_v" ] && printf "frontmatter: description is empty in %s\n" "$manifest" >> "$issues"
+    fi
+  fi
+
+  # Tier-dir naming check (Q-007). Bare N/ → warning, not error.
+  for n in 0 1 2 3 4 5; do
+    if [ -d "$d/$n" ] && [ ! -L "$d/$n" ]; then
+      printf "bare tier dir '%s/' is not recognized (use '%s-melting-pot/' instead)\n" "$n" "$n" >> "$warns"
+    fi
+  done
+
+  # Every chunk under N-melting-pot/ must have frontmatter.
+  for n in 0 1 2 3 4 5; do
+    td="$d/${n}-melting-pot"
+    [ -d "$td" ] || continue
+    find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r f; do
+      if ! mp_has_frontmatter "$f"; then
+        printf "chunk missing frontmatter: %s\n" "$f" >> "$issues"
+      fi
+    done
+  done
+
+  # Patches: every *.patch in $MP_HOME/<basename>/patches/ must parse.
+  basename_v=$(basename "$d")
+  pdir=$(mp_patches_dir "$basename_v")
+  if [ -d "$pdir" ]; then
+    for p in "$pdir"/*.patch; do
+      [ -f "$p" ] || continue
+      if ! mp_validate_patch "$p" 2>/dev/null; then
+        printf "patch does not parse: %s\n" "$p" >> "$issues"
+      fi
+    done
+  fi
+
+  # .failed/ markers: each must contain the four delimited sections.
+  fdir=$(mp_failed_dir "$basename_v")
+  applied_n=0
+  failed_n=0
+  stale_n=0
+  if [ -d "$fdir" ]; then
+    for m in "$fdir"/*.failed; do
+      [ -f "$m" ] || continue
+      for tag in patch 'upstream excerpt' reject timestamp; do
+        if ! grep -q "^--- $tag ---" "$m"; then
+          printf "failed marker missing section '%s': %s\n" "$tag" "$m" >> "$issues"
+          break
+        fi
+      done
+      failed_n=$((failed_n + 1))
+      # Stale = marker without a corresponding patch file (patch was removed
+      # without clearing the marker).
+      pid=$(basename "$m" .failed)
+      if [ ! -f "$pdir/$pid" ]; then
+        printf "stale marker (no matching patch): %s\n" "$m" >> "$warns"
+        stale_n=$((stale_n + 1))
+      fi
+    done
+  fi
+  applied_n=$(mp_patch_status "$basename_v" 2>/dev/null | awk -F'\t' '$2=="applies"{c++} END{print c+0}')
+
+  if [ -s "$warns" ]; then
+    mp_warn "warnings for $d:"
+    sed 's/^/  - /' "$warns" >&2
+  fi
+  if [ -s "$issues" ]; then
+    mp_err "validation failed for $d:"
+    sed 's/^/  - /' "$issues" >&2
+    rm -f "$issues" "$warns"
+    return 1
+  fi
+  rm -f "$issues" "$warns"
+  patches_total=$(mp_count_patches "$basename_v")
+  printf "OK: %s\n" "$d"
+  printf "  patches: total=%s failed=%s stale=%s\n" "$patches_total" "$failed_n" "$stale_n"
+  return 0
+}
+
+# ----- trash -----
+cmd_trash() {
+  dry_run=0
+  arg=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "trash: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$arg" ]; then arg="$1"; shift; else mp_err "trash: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$arg" ] || { mp_err "trash: skill required"; return 2; }
+  src=$(resolve_skill_dir "$arg" 2>/dev/null || true)
+  if [ -z "$src" ] || [ ! -d "$src" ]; then
+    mp_err "trash: no such skill: $arg"
+    return 1
+  fi
+  src_abs=$(cd "$src" && pwd)
+  dirname=$(basename "$src_abs")
+  ts=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+  iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  target="$MP_TRASH/${ts}-${dirname}"
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN trash: mv %s -> %s\n" "$src_abs" "$target"
+    return 0
+  fi
+  mkdir -p "$MP_TRASH"
+  if [ -e "$target" ]; then
+    mp_err "trash target exists (timestamp collision?): $target"
+    return 1
+  fi
+  mv "$src_abs" "$target"
+  esc_path=$(printf "%s" "$src_abs" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+  esc_name=$(printf "%s" "$dirname" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+  cat > "$target/.mp-trash-meta.json" <<EOF
+{"name":"$esc_name","orig_path":"$esc_path","deleted_at":"$iso"}
+EOF
+  printf "%s\n" "$target"
+}
+
+# ----- restore -----
+cmd_restore() {
+  dry_run=0
+  arg=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "restore: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$arg" ]; then arg="$1"; shift; else mp_err "restore: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$arg" ] || { mp_err "restore: trash-entry required"; return 2; }
+  entry="$arg"
+  if [ ! -d "$entry" ]; then
+    mp_err "restore: not a directory: $entry"
+    return 1
+  fi
+  meta="$entry/.mp-trash-meta.json"
+  if [ ! -f "$meta" ]; then
+    mp_err "restore: missing meta: $meta"
+    return 1
+  fi
+  orig=$(awk '
+    {
+      n = index($0, "\"orig_path\"")
+      if (n == 0) next
+      rest = substr($0, n + length("\"orig_path\""))
+      m = index(rest, ":")
+      if (m == 0) next
+      rest = substr(rest, m + 1)
+      sub(/^[[:space:]]*"/, "", rest)
+      out = ""
+      i = 1
+      while (i <= length(rest)) {
+        c = substr(rest, i, 1)
+        if (c == "\\" && i < length(rest)) {
+          n2 = substr(rest, i + 1, 1)
+          if (n2 == "\"" || n2 == "\\") { out = out n2; i += 2; continue }
+        }
+        if (c == "\"") break
+        out = out c
+        i += 1
+      }
+      print out
+      exit
+    }
+  ' "$meta")
+  if [ -z "$orig" ]; then
+    mp_err "restore: could not parse orig_path from $meta"
+    return 1
+  fi
+  if [ -e "$orig" ]; then
+    mp_err "restore: target exists: $orig"
+    return 1
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN restore: mv %s -> %s\n" "$entry" "$orig"
+    return 0
+  fi
+  mkdir -p "$(dirname "$orig")"
+  mv "$entry" "$orig"
+  rm -f "$orig/.mp-trash-meta.json"
+  printf "restored: %s\n" "$orig"
+}
+
+# ----- import-preview <root>: walk and report -----
+# TSV: path<TAB>name<TAB>description<TAB>tiers<TAB>issues
+cmd_import_preview() {
+  root="${1:?root required}"
+  if [ ! -d "$root" ]; then
+    mp_err "import-preview: not a directory: $root"
+    return 1
+  fi
+  # Discover both meta.md and SKILL.md.
+  find "$root" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | sort | while IFS= read -r mf; do
+    d=$(dirname "$mf")
+    name_v=$(mp_fm_field name "$mf")
+    desc_v=$(mp_fm_field description "$mf")
+    tiers_present=$(mp_list_tiers_present "$d")
+    if [ -n "$tiers_present" ]; then
+      tiers_disp="[${tiers_present}]-melting-pot"
+    else
+      tiers_disp="legacy"
+    fi
+    issues=""
+    [ -z "$name_v" ] && issues="${issues}${issues:+;}missing-name"
+    [ -z "$desc_v" ] && issues="${issues}${issues:+;}missing-description"
+    mp_has_frontmatter "$mf" || issues="${issues}${issues:+;}no-frontmatter"
+    # Q-007: bare N/ → warning issue
+    for n in 0 1 2 3 4 5; do
+      if [ -d "$d/$n" ] && [ ! -L "$d/$n" ]; then
+        issues="${issues}${issues:+;}bare-tier-dir-${n}"
+      fi
+    done
+    name_v=$(printf "%s" "$name_v" | tr '\t\n' '  ')
+    desc_v=$(printf "%s" "$desc_v" | tr '\t\n' '  ')
+    printf "%s\t%s\t%s\t%s\t%s\n" "$d" "$name_v" "$desc_v" "$tiers_disp" "$issues"
+  done
+}
+
+# ----- patch-add <skill> <patch-file> -----
+# Copies patch into ~/.melt/<skill>/patches/, renumbering to the next NNN- slot.
+cmd_patch_add() {
+  dry_run=0
+  skill=""
+  src=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "patch-add: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$skill" ]; then skill="$1"; shift
+          elif [ -z "$src" ]; then src="$1"; shift
+          else mp_err "patch-add: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$skill" ] && [ -n "$src" ] || { mp_err "patch-add: usage: <skill> <patch-file>"; return 2; }
+  if [ ! -f "$src" ]; then
+    mp_err "patch-add: no such patch file: $src"
+    return 1
+  fi
+  if ! mp_validate_patch "$src" 2>/dev/null; then
+    mp_err "patch-add: patch does not parse: $src"
+    return 1
+  fi
+  basename_v="$skill"
+  # If skill resolves to a dir under MP_HOME, take its basename.
+  d=$(resolve_skill_dir "$skill" 2>/dev/null || true)
+  [ -n "$d" ] && basename_v=$(basename "$d")
+  pdir=$(mp_patches_dir "$basename_v")
+  # Next slot = max existing prefix + 1 (zero-padded to 3 digits). If none exist, start at 001.
+  next=$(mp_list_patches "$basename_v" | awk '
+    {
+      bn = $0
+      sub(/.*\//, "", bn)
+      if (match(bn, /^[0-9]+/)) {
+        n = substr(bn, RSTART, RLENGTH) + 0
+        if (n > max) max = n
+      }
+    }
+    END { printf "%03d", max + 1 }
+  ')
+  src_bn=$(basename "$src")
+  # Strip any leading NNN- from source filename.
+  stripped=$(printf "%s" "$src_bn" | sed -E 's/^[0-9]+-//')
+  case "$stripped" in
+    *.patch) target_bn="${next}-${stripped}" ;;
+    *)       target_bn="${next}-${stripped}.patch" ;;
+  esac
+  target="$pdir/$target_bn"
+  if [ "$dry_run" -eq 1 ]; then
+    printf "DRY-RUN patch-add: cp %s -> %s\n" "$src" "$target"
+    return 0
+  fi
+  mkdir -p "$pdir"
+  cp "$src" "$target"
+  printf "%s\n" "$target"
+}
+
+# ----- patch-list <skill> -----
+# Emits patch-id<TAB>status per patch. Status from mp_patch_status (cheap):
+# applies (if no marker AND validate_patch ok), failed, not-yet-attempted.
+cmd_patch_list() {
+  skill="${1:?patch-list: skill required}"
+  basename_v="$skill"
+  d=$(resolve_skill_dir "$skill" 2>/dev/null || true)
+  [ -n "$d" ] && basename_v=$(basename "$d")
+  pdir=$(mp_patches_dir "$basename_v")
+  if [ ! -d "$pdir" ] || [ -z "$(mp_list_patches "$basename_v" 2>/dev/null)" ]; then
+    printf "(no patches)\n"
+    return 0
+  fi
+  mp_patch_status "$basename_v"
+}
+
+# ----- patch-remove <skill> <patch-id> -----
+cmd_patch_remove() {
+  dry_run=0
+  skill=""
+  pid=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      -*) mp_err "patch-remove: unknown flag: $1"; return 2 ;;
+      *)  if [ -z "$skill" ]; then skill="$1"; shift
+          elif [ -z "$pid" ]; then pid="$1"; shift
+          else mp_err "patch-remove: extra arg: $1"; return 2; fi ;;
+    esac
+  done
+  [ -n "$skill" ] && [ -n "$pid" ] || { mp_err "patch-remove: usage: <skill> <patch-id>"; return 2; }
+  basename_v="$skill"
+  d=$(resolve_skill_dir "$skill" 2>/dev/null || true)
+  [ -n "$d" ] && basename_v=$(basename "$d")
+  pdir=$(mp_patches_dir "$basename_v")
+  fdir=$(mp_failed_dir "$basename_v")
+  patch_path="$pdir/$pid"
+  marker_path="$fdir/${pid}.failed"
+  if [ ! -f "$patch_path" ] && [ ! -f "$marker_path" ]; then
+    mp_err "patch-remove: no such patch or marker: $pid"
+    return 1
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    [ -f "$patch_path" ] && printf "DRY-RUN patch-remove: rm %s\n" "$patch_path"
+    [ -f "$marker_path" ] && printf "DRY-RUN patch-remove: rm %s\n" "$marker_path"
+    return 0
+  fi
+  [ -f "$patch_path" ] && rm -f "$patch_path"
+  [ -f "$marker_path" ] && rm -f "$marker_path"
+  printf "removed: %s\n" "$pid"
+}
+
+# ----- patch-validate <skill>: dry-run apply, report per-patch status (read-only) -----
+# Does NOT write .failed/ markers. Uses apply_in_memory --dry-run.
+cmd_patch_validate() {
+  skill="${1:?patch-validate: skill required}"
+  basename_v="$skill"
+  d=$(resolve_skill_dir "$skill" 2>/dev/null || true)
+  [ -n "$d" ] && basename_v=$(basename "$d")
+  # Find a manifest body to apply against.
+  manifest=""
+  [ -n "$d" ] && manifest=$(mp_manifest_path "$d")
+  if [ -z "$manifest" ]; then
+    # Try upstream registered location.
+    while IFS=$(printf '\t') read -r r p; do
+      [ -n "$r" ] || continue
+      r_e=$(mp_expand_root "$r")
+      cand=$(mp_manifest_path "$r_e/$basename_v" 2>/dev/null || true)
+      [ -n "$cand" ] && manifest="$cand" && break
+    done <<EOF
+$(mp_parse_patterns 2>/dev/null || true)
+EOF
+  fi
+  if [ -z "$manifest" ]; then
+    mp_err "patch-validate: cannot find manifest for $basename_v"
+    return 1
+  fi
+  if [ -z "$(mp_list_patches "$basename_v" 2>/dev/null)" ]; then
+    printf "(no patches)\n"
+    return 0
+  fi
+  # Run apply_in_memory --dry-run and report.
+  mp_apply_in_memory "$basename_v" "$manifest" --dry-run > /dev/null 2>&1 || true
+  applied="${MP_PATCH_APPLIED:-}"
+  failed="${MP_PATCH_FAILED:-}"
+  for pid in $applied; do
+    printf "%s\tapplies\n" "$pid"
+  done
+  for pid in $failed; do
+    printf "%s\tfailed\n" "$pid"
+  done
+}
+
+# ----- dispatch -----
+main() {
+  if [ "$#" -eq 0 ]; then
+    usage
+    return 2
+  fi
+  sub="$1"; shift
+  case "$sub" in
+    collision-check) cmd_collision_check "$@" ;;
+    scaffold)        cmd_scaffold "$@" ;;
+    validate)        cmd_validate "$@" ;;
+    trash)           cmd_trash "$@" ;;
+    restore)         cmd_restore "$@" ;;
+    import-preview)  cmd_import_preview "$@" ;;
+    patch-add)       cmd_patch_add "$@" ;;
+    patch-list)      cmd_patch_list "$@" ;;
+    patch-remove)    cmd_patch_remove "$@" ;;
+    patch-validate)  cmd_patch_validate "$@" ;;
+    -h|--help|help)  usage; return 0 ;;
+    *) mp_err "unknown subcommand: $sub"; usage >&2; return 2 ;;
+  esac
+}
+
+main "$@"
