@@ -47,18 +47,18 @@ Survey of every file in `/Users/coding/Projects/skill-core/sc/` and `/Users/codi
 
 | Component | Why fresh | Notes |
 | --- | --- | --- |
-| `mp/lib/tier.sh` | New concept | `walk_tier_dirs <skill-dir>` (recognises only `N-melting-pot/`), `resolve_chunk_path`, `append_status_history`, `read_tier_meta` (parses `promote_when`, `demote_when`, `depends_on`, `use_count`, `last_used`), `detect_full_overlay_mode <skill>` (Q-007 partial-coverage rule). |
+| `mp/lib/tier.sh` | New concept | `walk_tier_dirs <skill-dir>` (recognises only `N-melting-pot/`), `resolve_chunk_path`, `append_status_history`, `read_tier_meta` (parses `depends_on`, `use_count`, `last_used`), `detect_full_overlay_mode <skill>` (Q-007 partial-coverage rule). |
 | `mp/lib/patch.sh` | New concept | `list_patches <skill>`, `apply_in_memory <upstream-file> <patch-list>` → stdout, `validate_patch <patch>` (parse-only), `record_failed_patch <skill> <patch-id> <reject-output> <upstream-excerpt>` (Q-001 — writes envelope to `~/.melt/<skill>/patches/.failed/<patch-id>.patch.failed`), `patch_status <skill>` → TSV (`patch-id\tstatus`: `applies` / `failed` / `not-yet-attempted`). Uses `git apply --check` on tmp dirs. **Apply pipeline is policy-free** — never auto-skips or auto-stops; just records and continues. |
 | `mp/lib/compose.sh` | New concept | `compose_skill <skill-name> --format md|json --tiers ... --no-patches --with-history` — the body of `mp:load`. |
 | `mp/load/{SKILL.md, action}` | New skill | Implements `mp:load <skill-name>`. Delegates heavy lifting to `compose.sh`. |
-| `mp/learn/{SKILL.md, action}` | New skill | All lifecycle scripts (`promote`/`demote`/`cleanup`/`refactor`/`cascade`/`harvest`/`eval`/**`patch-triage`** [new per Q-001]). Largest single piece of new code. |
+| `mp/learn/{SKILL.md, action}` | New skill | Lifecycle scripts (`promote`/`demote`/`refactor`/`cascade`/`harvest`/**`patch-triage`** [new per Q-001]). Usage-driven promote/demote, no rules (Q-005). Largest single piece of new code. |
 | `mp/crud/action patch-*` subcommands | New concept | `patch-add`, `patch-list` (marks `applies`/`failed`/`not-yet-attempted`), `patch-validate` (read-only, does NOT write `.failed/` markers), `patch-remove` (also clears matching `.failed/` marker). |
 | `install/install.sh` (renamed from `install-claude-md.sh`) | New | Bundled installer (Q-013) — seeds `~/.melt/`, copies hooks, emits BOTH `install/REGISTER-HOOKS.md` (hooks manifest, Q-012) AND `install/task-intake.md` (global-rule block) for the calling LLM to install harness-specifically. Q-003: does NOT mutate harness config. `--copy-from-sc` flag for one-time migration from `~/.sc/repos.patterns` (Q-008). `--dry-run` flag. |
 | `install/REGISTER-HOOKS.md` | New | **Sole** hook manifest (Q-012 — markdown only, no JSON, no stdout TSV mode). Structured tables: `script-path` / `hook-event-slot` / `description` / `install-target-hint`. The calling agent reads and translates into harness-specific config. |
 | `install/hooks/melt-nudge.sh` | New | **Harness-agnostic** POSIX sh (Q-003). Emits plain stdout — no Claude-Code-specific JSON. |
 | `install/hooks/melt-resume.sh` | New | **Harness-agnostic** POSIX sh (Q-003). Emits plain stdout. |
 | `install/task-intake.md` | New | Global-rule text block; the calling agent appends it to whatever the harness uses as its global rules file. |
-| Frontmatter schema for chunks | New | Each chunk's `---` block declares `title`, `created`, `last_used`, `last_validated`, `use_count`, `provenance`, `promote_when`, `demote_when`, `depends_on`, `status_history`. |
+| Frontmatter schema for chunks | New | Each chunk's `---` block declares `title`, `created`, `last_used`, `use_count`, `provenance`, `depends_on`, `status_history`. No `promote_when`/`demote_when` (Q-005: usage-driven movement); `use_count`/`last_used` are informational only. |
 
 ## Phases
 
@@ -117,17 +117,15 @@ Foundation everything else depends on. **Blocks Phases 2 / 3 / 4.**
 
 Largest unit of new code. Decomposes into sub-tasks:
 
-- [ ] `mp/learn/action promote <chunk>` — read frontmatter, evaluate `promote_when` (limited expression grammar — see Q-005, v1 default = structured-key schema), mv to `<tier+1>-melting-pot/`, append `status_history` entry.
-- [ ] `mp/learn/action demote <chunk>` — symmetric.
+- [ ] `mp/learn/action promote <chunk>` — good use: mv to `<tier+1>-melting-pot/`, append `status_history` entry; refuse at tier 5. No rules (Q-005 resolved: usage-driven, no `promote_when`).
+- [ ] `mp/learn/action demote <chunk>` — bad use: mv to `<tier-1>-melting-pot/`; at tier 0, remove the chunk (after cascade-flagging dependents). No rules.
 - [ ] `mp/learn/action cascade <chunk>` — walk `depends_on` graph; flag dependents (no auto-demote in v1 — see Q-002).
-- [ ] `mp/learn/action cleanup` — list stale (no use in N days, demoted past tier 0, provenance gone); print proposal; `--yes` to act.
 - [ ] `mp/learn/action refactor` — duplicate detection via FTS5 near-duplicate query; print proposal; `--yes` to act.
-- [ ] `mp/learn/action eval` — scheduled sweep: walk every chunk, run promote/demote rules, log changes.
-- [ ] `mp/learn/action harvest` — live-context mode: emit a structured proposal (`[create]/[update]/[promote]/[demote]/[cleanup]/[refactor]/[skip]` choices) for the agent to act on. Live-context body is supplied by the agent (via stdin) per Q-006 v1 default.
+- [ ] `mp/learn/action harvest` — live-context mode: emit a structured proposal (`[create]/[promote]/[demote]/[skip]` choices) for the agent to act on. Live-context body is supplied by the agent (via stdin) per Q-006 v1 default.
 - [ ] `mp/learn/action harvest --transcript <path>` — transcript mode: read `.jsonl`, same proposal flow.
 - [ ] **`mp/learn/action patch-triage` (NEW per Q-001)** — sweep every `~/.melt/*/patches/.failed/` marker; for each marker, parse the envelope (patch hunk / upstream excerpt / reject / timestamp) and emit a structured proposal to the calling LLM: `regenerate` (the LLM rewrites the patch against current upstream), `hand-rewrite` (open the patch in `$EDITOR`), `delete` (rm the patch + marker), `defer` (leave the marker, will re-surface next sweep). LLM decides case-by-case per Q-001.
 - [ ] `mp/learn/SKILL.md` — full procedural doc.
-- [ ] Tests: T-LR-01..18 (promote/demote conditions; cleanup proposals; refactor proposals; cascade flagging; transcript-mode harvest; **patch-triage end-to-end including `regenerate` / `delete` / `defer` outcomes**).
+- [ ] Tests: T-LR-01..16 (promote +1 / demote -1 / demote-at-0 removal / tier-5 ceiling; refactor proposals; cascade flagging; transcript-mode harvest; **patch-triage end-to-end including `regenerate` / `delete` / `defer` outcomes**).
 
 ### Phase 6 — Hooks + installer (DevOps)
 
@@ -197,5 +195,5 @@ graph LR
 - **No commit / push** without explicit user approval. Build commit is one deliverable; team-lead will request approval before staging.
 - **`~/.melt` is throwaway in tests.** Every test runs in a sandboxed `$MP_HOME=mktemp -d`, same pattern as sc's harness.
 - **Resolved Q-IDs (load-bearing for current implementation):** Q-001 (patch pipeline policy-free + `.failed/` markers), Q-003 (installer harness-agnostic), Q-007 (tier dirs are `N-melting-pot/`), Q-008 (clean fork to `~/.melt/repos.patterns`), Q-012 (`REGISTER-HOOKS.md` markdown-only — no JSON, no TSV mode), Q-013 (bundled `install/install.sh` emits both hooks manifest AND task-intake rule), Q-014 (`mp_append_status_history` idempotency — fixed in code, regression test in `test/run-tests.sh`).
-- **Lifecycle automation is still the biggest unknown.** Phase 5 has the most exposure to spec ambiguity — see open_questions.md Q-002, Q-004, Q-005, Q-006, Q-009, Q-010 (all have v1 defaults; user can override).
+- **Lifecycle automation is still the biggest unknown.** Phase 5 has the most exposure to spec ambiguity — see open_questions.md Q-002, Q-004, Q-006, Q-009, Q-010 (all have v1 defaults; user can override). Q-005 resolved 2026-05-29: usage-driven promote/demote, no rule grammar.
 - **Open Q-IDs not blocking current work:** Q-011 (`.failed/` marker on-disk schema — v1 default works for shipped Phase 1), Q-015 (`mp:learn refactor` near-duplicate detection — v1 ships with title-only matching; FTS5 NEAR deferred as future enhancement).

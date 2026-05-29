@@ -14,7 +14,7 @@ graph TD
     LOAD["mp:load<br/>compose manifest+chunks+patches → markdown/json"]:::skill
     LIST["mp:list<br/>flat inventory across registered + overlay"]:::skill
     CRUD["mp:crud<br/>scaffold / validate / trash / restore / patch ops"]:::skill
-    LEARN["mp:learn<br/>promote / demote / cleanup / refactor / cascade / patch-triage"]:::skill
+    LEARN["mp:learn<br/>promote / demote / refactor / cascade / harvest / patch-triage"]:::skill
   end
 
   %% ── Shared library (sourced by every action) ──────────────────────────────
@@ -149,19 +149,19 @@ Subcommands (deterministic helpers; the procedure in SKILL.md owns judgment):
 
 Lifecycle scripts. Each writes a new `status_history` entry into the chunk's frontmatter.
 
+Tier movement is usage-driven: a good use promotes, a bad use demotes, and a bad use at tier 0 removes the chunk. No `promote_when`/`demote_when` rules, no time-decay, no scheduled sweep.
+
 | Subcommand | Behaviour |
 | --- | --- |
-| `promote <chunk-path>` | evaluate `promote_when` against chunk frontmatter; mv to `<tier+1>-melting-pot/` if true |
-| `demote <chunk-path>` | symmetric — evaluate `demote_when`; mv to `<tier-1>-melting-pot/` |
-| `cleanup` | list/propose deletion of stale chunks (no use in N days, demoted past tier 0, provenance gone) |
+| `promote <chunk-path>` | good use: mv to `<tier+1>-melting-pot/` and append status_history; refuse at tier 5 |
+| `demote <chunk-path>` | bad use: mv to `<tier-1>-melting-pot/`; at tier 0, remove the chunk (after cascade-flagging dependents) |
 | `refactor` | identify overlapping chunks via FTS5 near-duplicate detection; propose consolidation |
 | `cascade <chunk-path>` | walk `depends_on` graph; flag dependents for review when a dep demotes |
 | `harvest` | session-end reflection: read transcript or live context, propose new chunks at tier 0 |
 | `harvest --transcript <path>` | post-`/clear` mode: read prior `.jsonl`, propose chunks |
-| `eval` | run promote/demote rules across all chunks (the "scheduled sweep") |
 | **`patch-triage`** | sweep every `~/.melt/*/patches/.failed/` marker; for each marker, emit a structured proposal to the calling LLM (regenerate / hand-rewrite / delete / defer) with the patch hunk + upstream excerpt + reject output |
 
-Triggered by: session-end (`harvest` + `eval` + `patch-triage`), scheduled sweep (`eval` + `patch-triage`), explicit gesture (`promote`/`demote`/`cleanup`/`refactor`/`patch-triage`).
+Triggered by: session-end (`harvest` + `patch-triage`), explicit gesture (`promote`/`demote`/`refactor`/`patch-triage`).
 
 ### Hooks (harness-agnostic)
 
@@ -278,7 +278,7 @@ melting-pot/
 | User customization of upstream | fork or nothing | git-patches, applied in-memory at index time; failures recorded to `.failed/` for LLM triage |
 | Patch failure | n/a | recorded as marker file; never auto-skipped; `mp:learn patch-triage` proposes resolution |
 | Tier dir naming | n/a | `N-melting-pot/` (suffix mandatory; bare `N/` not recognized) |
-| Lifecycle | none (manual create/delete) | promote/demote/cleanup/refactor/cascade/patch-triage via `mp:learn` |
+| Lifecycle | none (manual create/delete) | usage-driven promote/demote (remove at tier 0) + refactor/cascade/harvest/patch-triage via `mp:learn` |
 | Hooks | none | Stop nudge + SessionStart:clear harvest, **harness-agnostic** |
 | Installer | docs file | `install/install.sh` — emits manifest, does NOT mutate harness config |
 | New skill scaffold | flat `<dir>/SKILL.md` | overlay `~/.melt/<skill>/meta.md` + `0-melting-pot/first.md` |

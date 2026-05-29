@@ -1,22 +1,24 @@
 #!/bin/sh
 # mp:learn — lifecycle automation for melting-pot.
 #
+# Tier movement is driven purely by USAGE QUALITY, not time or rules:
+#   good use -> promote (+1 tier)
+#   bad use  -> demote  (-1 tier); a bad use at tier 0 REMOVES the chunk.
+#
 # Subcommands:
-#   harvest [--transcript <path>]   propose new/update/promote/demote actions from
+#   harvest [--transcript <path>]   propose new/promote/demote actions from
 #                                   either live-context JSON on stdin OR the
 #                                   transcript path written by melt-resume.sh
-#   promote <chunk>                 evaluate promote_when; if true, mv to tier+1
-#   demote <chunk>                  evaluate demote_when; if true, mv to tier-1
-#   cleanup                         propose deletion of stale chunks
+#   promote <chunk>                 good use: mv chunk to tier+1 (refuse at tier 5)
+#   demote <chunk>                  bad use: mv chunk to tier-1; at tier 0, remove it
 #   refactor                        propose consolidation of overlapping chunks
 #   cascade <chunk>                 walk depends_on; flag dependents (Q-002 v1)
 #   patch-triage [--format md|json] sweep all .failed/ markers; emit triage proposals
-#   eval                            scheduled sweep: promote/demote everything
 #
 # Flags: --dry-run on every mutating subcommand. Mutators write status_history
 # entries; reads are read-only.
 #
-# Exit: 0=ok, 1=condition unmet / nothing to do, 2=usage/config.
+# Exit: 0=ok, 1=nothing to do, 2=usage/config.
 
 set -eu
 
@@ -53,131 +55,26 @@ usage() {
 usage: action <subcommand> [args] [--dry-run]
 
   harvest [--transcript <path>] [--session <id>]
-                                — propose new/update/promote/demote actions.
+                                — propose new/promote/demote actions.
                                   Live mode: agent pipes structured JSON on stdin.
                                   Transcript mode: reads .pending-transcript (read-then-unlink)
                                   OR explicit --transcript <path>.
-  promote <chunk> [--dry-run]   — evaluate promote_when; mv to tier+1 if true
-  demote <chunk> [--dry-run]    — evaluate demote_when; mv to tier-1 if true
-  cleanup [--days N] [--yes]    — propose deletion of stale chunks (default N=90)
+  promote <chunk> [--dry-run]   — good use: mv to tier+1 (refuse at tier 5)
+  demote <chunk> [--dry-run]    — bad use: mv to tier-1; at tier 0, remove the chunk
   refactor [--yes]              — propose consolidation of overlapping chunks
   cascade <chunk>               — walk depends_on; flag dependents (Q-002 v1: flag-only)
   patch-triage [--format md|json] — sweep .failed/ markers; emit triage proposals
-  eval [--dry-run]              — scheduled sweep: promote/demote everything
 
 exit: 0=ok, 1=nothing-to-do, 2=usage/config
 EOF
 }
 
 # ============================================================================
-# Q-005 v1 evaluator — structured-key schema only (no DSL).
-# ============================================================================
-#
-# Frontmatter shape (nested YAML mapping, one key per line, two-space indent):
-#
-#   promote_when:
-#     use_count_min: 3
-#     days_since_last_use_max: 30
-#   demote_when:
-#     days_since_last_use_min: 90
-#
-# Recognized keys for both promote_when / demote_when:
-#   use_count_min                 (numeric)
-#   use_count_max                 (numeric)
-#   days_since_last_use_min       (numeric — days since last_used)
-#   days_since_last_use_max       (numeric)
-#   days_since_validated_min      (numeric — days since last_validated)
-#   days_since_validated_max      (numeric)
-#   tier_min                      (0..5)
-#   tier_max                      (0..5)
-#
-# Semantics: all listed keys are ANDed. The condition is "true" if every
-# listed key is satisfied. Unlisted keys are unconstrained.
-
-# Read a nested-mapping value: `mp_read_nested_key <chunk> <outer> <inner>` →
-# value on stdout, empty if missing.
-mp_read_nested_key() {
-  p="$1"; outer="$2"; inner="$3"
-  awk -v outer="$outer" -v inner="$inner" '
-    BEGIN { in_fm = 0; seen_open = 0; in_block = 0; outer_re = "^" outer ":[[:space:]]*$" }
-    /^---[[:space:]]*$/ {
-      if (!seen_open) { seen_open = 1; in_fm = 1; next }
-      else            { exit }
-    }
-    !in_fm { next }
-    {
-      if ($0 ~ outer_re) { in_block = 1; next }
-      if (in_block) {
-        if ($0 !~ /^[[:space:]]+/) { in_block = 0; next }
-        # Strip indent, look for "<inner>: <value>"
-        line = $0
-        sub(/^[[:space:]]+/, "", line)
-        idx = index(line, ":")
-        if (idx == 0) next
-        k = substr(line, 1, idx - 1)
-        if (k == inner) {
-          v = substr(line, idx + 1)
-          sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
-          if (length(v) >= 2) {
-            first = substr(v, 1, 1); last = substr(v, length(v), 1)
-            if ((first == "\"" && last == "\"") || (first == "'\''" && last == "'\''")) {
-              v = substr(v, 2, length(v) - 2)
-            }
-          }
-          print v
-          exit
-        }
-      }
-    }
-  ' "$p"
-}
-
-# Evaluate <outer> conditions against a chunk's metadata.
-# Args: <chunk-path> <outer>  (outer ∈ promote_when, demote_when)
-# Returns 0 if every present condition is satisfied; 1 otherwise.
-# Stderr: each evaluation line for debugging when MP_LOG_LEVEL=debug.
-mp_eval_when() {
-  p="$1"; outer="$2"
-  uc=$(mp_fm_field use_count "$p")
-  lu=$(mp_fm_field last_used "$p")
-  lv=$(mp_fm_field last_validated "$p")
-  dlu=$(mp_days_since "$lu")
-  dlv=$(mp_days_since "$lv")
-  tier=$(mp_tier_of_chunk "$p")
-  uc=${uc:-0}; tier=${tier:-0}; dlu=${dlu:-0}; dlv=${dlv:-0}
-
-  # If the outer block is missing entirely, condition is vacuously false (no
-  # rule = no promote/demote).
-  if ! grep -q "^${outer}:" "$p"; then
-    return 1
-  fi
-
-  any_constraint=0
-  for key in use_count_min use_count_max \
-             days_since_last_use_min days_since_last_use_max \
-             days_since_validated_min days_since_validated_max \
-             tier_min tier_max; do
-    v=$(mp_read_nested_key "$p" "$outer" "$key")
-    [ -z "$v" ] && continue
-    any_constraint=1
-    case "$key" in
-      use_count_min)            [ "$uc"  -ge "$v" ] || return 1 ;;
-      use_count_max)            [ "$uc"  -le "$v" ] || return 1 ;;
-      days_since_last_use_min)  [ "$dlu" -ge "$v" ] || return 1 ;;
-      days_since_last_use_max)  [ "$dlu" -le "$v" ] || return 1 ;;
-      days_since_validated_min) [ "$dlv" -ge "$v" ] || return 1 ;;
-      days_since_validated_max) [ "$dlv" -le "$v" ] || return 1 ;;
-      tier_min)                 [ "$tier" -ge "$v" ] || return 1 ;;
-      tier_max)                 [ "$tier" -le "$v" ] || return 1 ;;
-    esac
-  done
-  # If the block exists but has no recognized constraints, treat as false (the
-  # author wrote `promote_when:` with no body — no signal).
-  [ "$any_constraint" -eq 1 ]
-}
-
-# ============================================================================
 # promote / demote — mv chunk between N-melting-pot dirs + append status_history.
+#
+# Tier movement is driven by usage quality only (no promote_when/demote_when
+# rules, no time-decay): a good use promotes, a bad use demotes, and a bad use
+# at tier 0 removes the chunk entirely.
 # ============================================================================
 
 # Resolve a chunk argument to an absolute path. Accepts:
@@ -241,10 +138,6 @@ cmd_promote() {
     mp_warn "promote: already at tier 5: $cp"
     return 1
   fi
-  if ! mp_eval_when "$cp" promote_when; then
-    mp_warn "promote: promote_when not satisfied for $cp"
-    return 1
-  fi
   new_tier=$((tier + 1))
   skill_dir=$(dirname "$(dirname "$cp")")
   new_dir="$skill_dir/${new_tier}-melting-pot"
@@ -287,13 +180,17 @@ cmd_demote() {
     mp_err "demote: chunk not under N-melting-pot/: $cp"
     return 1
   fi
+  # A bad use at tier 0 has nowhere lower to go — remove the chunk. Flag
+  # dependents first (cascade), then delete.
   if [ "$tier" -le 0 ]; then
-    mp_warn "demote: already at tier 0: $cp"
-    return 1
-  fi
-  if ! mp_eval_when "$cp" demote_when; then
-    mp_warn "demote: demote_when not satisfied for $cp"
-    return 1
+    if [ "$dry_run" -eq 1 ]; then
+      printf "DRY-RUN demote: would REMOVE %s (already at tier 0)\n" "$cp"
+      return 0
+    fi
+    cmd_cascade "$cp" >&2 || true
+    rm -f "$cp"
+    printf "removed: tier 0 chunk demoted out of the pot\n  %s\n" "$cp"
+    return 0
   fi
   new_tier=$((tier - 1))
   skill_dir=$(dirname "$(dirname "$cp")")
@@ -407,86 +304,6 @@ EOF
       done
     done
   done | tee /dev/null
-  return 0
-}
-
-# ============================================================================
-# cleanup — propose deletion of stale chunks.
-# Stale criteria (default):
-#   - chunk at tier 0 AND days_since_last_use > $days
-#   - chunk's `last_used` missing AND `created` > $days
-#   - chunk's provenance empty/missing
-# ============================================================================
-
-cmd_cleanup() {
-  days=90
-  yes=0
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --days)    days="${2:?--days needs value}"; shift 2 ;;
-      --days=*)  days="${1#--days=}"; shift ;;
-      --yes)     yes=1; shift ;;
-      -*) mp_err "cleanup: unknown flag: $1"; return 2 ;;
-      *)  mp_err "cleanup: extra arg: $1"; return 2 ;;
-    esac
-  done
-  proposals=$(mktemp -t mp_cleanup.XXXXXX)
-  : > "$proposals"
-  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
-    [ -d "$d" ] || continue
-    for n in 0 1 2 3 4 5; do
-      td="$d/${n}-melting-pot"
-      [ -d "$td" ] || continue
-      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null | while IFS= read -r f; do
-        lu=$(mp_fm_field last_used "$f")
-        cr=$(mp_fm_field created "$f")
-        prov=$(mp_fm_field provenance "$f")
-        reason=""
-        # Tier 0 + idle > days
-        if [ "$n" = "0" ]; then
-          dlu=$(mp_days_since "$lu")
-          dlu=${dlu:-0}
-          if [ -n "$lu" ] && [ "$dlu" -gt "$days" ]; then
-            reason="tier-0 idle for $dlu days (> $days)"
-          fi
-          if [ -z "$reason" ] && [ -z "$lu" ]; then
-            dcr=$(mp_days_since "$cr"); dcr=${dcr:-0}
-            if [ -n "$cr" ] && [ "$dcr" -gt "$days" ]; then
-              reason="tier-0 born $dcr days ago, never used"
-            fi
-          fi
-        fi
-        # Provenance gone (independent of tier).
-        if [ -z "$reason" ] && [ -z "$prov" ]; then
-          # Heuristic: a chunk with NO provenance line and no body activity.
-          # We only flag this for tier 0 to be conservative.
-          if [ "$n" = "0" ]; then
-            reason="missing provenance"
-          fi
-        fi
-        if [ -n "$reason" ]; then
-          printf "%s\t%s\n" "$f" "$reason" >> "$proposals"
-        fi
-      done
-    done
-  done
-  if [ ! -s "$proposals" ]; then
-    printf "no stale chunks found.\n"
-    rm -f "$proposals"
-    return 1
-  fi
-  printf "stale chunk proposals (days threshold = %s):\n\n" "$days"
-  awk -F'\t' '{printf "  %s\n    reason: %s\n", $1, $2}' "$proposals"
-  printf "\n"
-  if [ "$yes" -eq 1 ]; then
-    while IFS=$(printf '\t') read -r p _; do
-      rm -f "$p"
-      printf "removed: %s\n" "$p"
-    done < "$proposals"
-  else
-    printf "re-run with --yes to delete the listed chunks.\n"
-  fi
-  rm -f "$proposals"
   return 0
 }
 
@@ -793,60 +610,6 @@ cmd_harvest() {
 }
 
 # ============================================================================
-# eval — scheduled sweep. Run promote_when then demote_when for every chunk.
-# ============================================================================
-
-cmd_eval() {
-  dry_run=0
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --dry-run) dry_run=1; shift ;;
-      -*) mp_err "eval: unknown flag: $1"; return 2 ;;
-      *)  mp_err "eval: extra arg: $1"; return 2 ;;
-    esac
-  done
-  promoted=0
-  demoted=0
-  # Snapshot chunk list first to avoid re-walking the moving tree.
-  snap=$(mktemp -t mp_eval.XXXXXX)
-  mp_discover_skills 2>/dev/null | awk -F'\t' '{print $1}' | while IFS= read -r d; do
-    [ -d "$d" ] || continue
-    for n in 0 1 2 3 4 5; do
-      td="$d/${n}-melting-pot"
-      [ -d "$td" ] || continue
-      find -L "$td" -maxdepth 1 -type f -name '*.md' 2>/dev/null
-    done
-  done > "$snap"
-
-  # Try promote first (chunks ascending the gradient first).
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    if mp_eval_when "$f" promote_when 2>/dev/null; then
-      if [ "$dry_run" -eq 1 ]; then
-        printf "DRY-RUN would promote: %s\n" "$f"
-      else
-        cmd_promote "$f" 2>/dev/null && promoted=$((promoted + 1)) || true
-      fi
-    fi
-  done < "$snap"
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    if mp_eval_when "$f" demote_when 2>/dev/null; then
-      if [ "$dry_run" -eq 1 ]; then
-        printf "DRY-RUN would demote: %s\n" "$f"
-      else
-        cmd_demote "$f" 2>/dev/null && demoted=$((demoted + 1)) || true
-      fi
-    fi
-  done < "$snap"
-  rm -f "$snap"
-  if [ "$dry_run" -eq 0 ]; then
-    printf "eval: promoted=%s demoted=%s\n" "$promoted" "$demoted"
-  fi
-  return 0
-}
-
-# ============================================================================
 # dispatch
 # ============================================================================
 main() {
@@ -859,11 +622,9 @@ main() {
     harvest)      cmd_harvest "$@" ;;
     promote)      cmd_promote "$@" ;;
     demote)       cmd_demote "$@" ;;
-    cleanup)      cmd_cleanup "$@" ;;
     refactor)     cmd_refactor "$@" ;;
     cascade)      cmd_cascade "$@" ;;
     patch-triage) cmd_patch_triage "$@" ;;
-    eval)         cmd_eval "$@" ;;
     -h|--help|help) usage; return 0 ;;
     *) mp_err "unknown subcommand: $sub"; usage >&2; return 2 ;;
   esac

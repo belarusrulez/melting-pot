@@ -1741,19 +1741,20 @@ run_learn_stdin() {
   RC=$?
 }
 
-# Make a chunk with structured promote/demote keys.
+# Make a chunk. Tier movement is usage-driven (no promote_when/demote_when),
+# so a chunk needs no rule keys — just identity + a born status_history entry.
+# Args: <path> <tier> [use_count]
 mk_chunk() {
-  path="$1"; tier="$2"; use_count="$3"; last_used="$4"; promote_kv="$5"; demote_kv="$6"
+  path="$1"; tier="$2"; use_count="${3:-0}"
   mkdir -p "$(dirname "$path")"
   {
     printf -- "---\n"
     printf -- "title: \"%s\"\n" "$(basename "$path" .md)"
     printf -- "created: 2026-01-01\n"
-    printf -- "last_used: %s\n" "$last_used"
-    printf -- "last_validated: %s\n" "$last_used"
+    printf -- "last_used: 2026-01-01\n"
     printf -- "use_count: %s\n" "$use_count"
-    printf -- "%s\n" "$promote_kv"
-    printf -- "%s\n" "$demote_kv"
+    printf -- "provenance:\n"
+    printf -- "  - session: test\n"
     printf -- "depends_on: []\n"
     printf -- "status_history:\n"
     printf -- "  - { tier: %s, at: 2026-01-01, reason: \"born\" }\n" "$tier"
@@ -1816,15 +1817,11 @@ t_PHASE5_LEARN_03() {
 
 t_PHASE5_LEARN_04() {
   TNAME=PHASE5-LEARN-04
-  # promote with met conditions moves the chunk to tier+1.
+  # good use -> promote moves the chunk to tier+1, unconditionally.
   t_setup
   d="$MP_HOME/skill-x"
   mkdir -p "$d/0-melting-pot"
-  mk_chunk "$d/0-melting-pot/p.md" 0 5 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 3" \
-    "demote_when:
-  days_since_last_use_min: 999"
+  mk_chunk "$d/0-melting-pot/p.md" 0
   run_learn promote "skill-x/0-melting-pot/p.md"
   assert_rc 0 || return 1
   assert_file_exists "$d/1-melting-pot/p.md" || return 1
@@ -1839,66 +1836,53 @@ t_PHASE5_LEARN_04() {
 
 t_PHASE5_LEARN_05() {
   TNAME=PHASE5-LEARN-05
-  # promote with unmet conditions: chunk stays, exit 1.
+  # promote at the ceiling (tier 5): refuse, exit 1, chunk stays.
   t_setup
   d="$MP_HOME/skill-x"
-  mkdir -p "$d/0-melting-pot"
-  mk_chunk "$d/0-melting-pot/q.md" 0 1 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 99" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  run_learn promote "skill-x/0-melting-pot/q.md"
+  mkdir -p "$d/5-melting-pot"
+  mk_chunk "$d/5-melting-pot/q.md" 5
+  run_learn promote "skill-x/5-melting-pot/q.md"
   assert_rc 1 || return 1
-  if [ ! -e "$d/0-melting-pot/q.md" ]; then
-    fail "$TNAME" "chunk should remain at tier 0"; return 1
+  if [ ! -e "$d/5-melting-pot/q.md" ]; then
+    fail "$TNAME" "chunk should remain at tier 5"; return 1
   fi
   pass "$TNAME"
 }
 
 t_PHASE5_LEARN_06() {
   TNAME=PHASE5-LEARN-06
-  # demote with met conditions (idle long enough): mv tier-1.
+  # bad use -> demote moves the chunk to tier-1, unconditionally.
   t_setup
   d="$MP_HOME/skill-y"
   mkdir -p "$d/2-melting-pot"
-  mk_chunk "$d/2-melting-pot/d.md" 2 0 "2024-01-01" \
-    "promote_when:
-  use_count_min: 999" \
-    "demote_when:
-  days_since_last_use_min: 30"
+  mk_chunk "$d/2-melting-pot/d.md" 2
   run_learn demote "skill-y/2-melting-pot/d.md"
   assert_rc 0 || return 1
   assert_file_exists "$d/1-melting-pot/d.md" || return 1
+  if ! grep -q 'demoted from tier 2' "$d/1-melting-pot/d.md"; then
+    fail "$TNAME" "status_history entry missing"; return 1
+  fi
   pass "$TNAME"
 }
 
 t_PHASE5_LEARN_07() {
   TNAME=PHASE5-LEARN-07
-  # cleanup proposes deletion of idle tier-0 chunks; --yes deletes them.
+  # bad use at tier 0 has nowhere lower to go -> demote removes the chunk.
   t_setup
-  d="$MP_HOME/cleanup-target"
+  d="$MP_HOME/floor-target"
   mkdir -p "$d/0-melting-pot"
   cat > "$d/meta.md" <<'EOF'
 ---
-name: cleanup:target
+name: floor:target
 description: x
 ---
 EOF
-  mk_chunk "$d/0-melting-pot/stale.md" 0 0 "2024-01-01" \
-    "promote_when:
-  use_count_min: 99" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  run_learn cleanup --days 30
+  mk_chunk "$d/0-melting-pot/scrap.md" 0
+  run_learn demote "floor-target/0-melting-pot/scrap.md"
   assert_rc 0 || return 1
-  assert_stdout_contains "stale chunk proposals" || return 1
-  assert_stdout_contains "stale.md" || return 1
-  # Without --yes, chunk should remain.
-  assert_file_exists "$d/0-melting-pot/stale.md" || return 1
-  run_learn cleanup --days 30 --yes
-  if [ -e "$d/0-melting-pot/stale.md" ]; then
-    fail "$TNAME" "--yes should have removed the stale chunk"; return 1
+  assert_stdout_contains "removed" || return 1
+  if [ -e "$d/0-melting-pot/scrap.md" ]; then
+    fail "$TNAME" "tier-0 chunk should be removed on demote"; return 1
   fi
   pass "$TNAME"
 }
@@ -2050,39 +2034,23 @@ EOF
 
 t_PHASE5_LEARN_13() {
   TNAME=PHASE5-LEARN-13
-  # structured-key operator coverage: every key works on its own.
+  # full mobility: repeated good uses climb 0 -> 5, then the ceiling refuses.
   t_setup
   d="$MP_HOME/op-skill"
-  mkdir -p "$d/2-melting-pot"
-  # use_count_min satisfied
-  mk_chunk "$d/2-melting-pot/a.md" 2 10 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 5" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  run_learn promote "op-skill/2-melting-pot/a.md"
-  assert_rc 0 || return 1
-  assert_file_exists "$d/3-melting-pot/a.md" || return 1
-
-  # tier_max constraint blocks promote
-  mk_chunk "$d/2-melting-pot/b.md" 2 99 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 1
-  tier_max: 1" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  run_learn promote "op-skill/2-melting-pot/b.md"
+  mkdir -p "$d/0-melting-pot"
+  mk_chunk "$d/0-melting-pot/a.md" 0
+  n=0
+  while [ "$n" -lt 5 ]; do
+    cur=$n; nxt=$((n + 1))
+    run_learn promote "op-skill/${cur}-melting-pot/a.md"
+    assert_rc 0 || return 1
+    assert_file_exists "$d/${nxt}-melting-pot/a.md" || return 1
+    n=$nxt
+  done
+  # At tier 5 the ceiling refuses further promotion.
+  run_learn promote "op-skill/5-melting-pot/a.md"
   assert_rc 1 || return 1
-
-  # days_since_last_use_max constraint
-  mk_chunk "$d/2-melting-pot/c.md" 2 99 "2020-01-01" \
-    "promote_when:
-  use_count_min: 1
-  days_since_last_use_max: 30" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  run_learn promote "op-skill/2-melting-pot/c.md"
-  assert_rc 1 || return 1
+  assert_file_exists "$d/5-melting-pot/a.md" || return 1
   pass "$TNAME"
 }
 
@@ -2092,11 +2060,7 @@ t_PHASE5_LEARN_14() {
   t_setup
   d="$MP_HOME/hist-skill"
   mkdir -p "$d/0-melting-pot"
-  mk_chunk "$d/0-melting-pot/h.md" 0 5 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 3" \
-    "demote_when:
-  days_since_last_use_min: 999"
+  mk_chunk "$d/0-melting-pot/h.md" 0
   run_learn promote "hist-skill/0-melting-pot/h.md"
   assert_rc 0 || return 1
   if ! grep -q "promoted from tier 0" "$d/1-melting-pot/h.md"; then
@@ -2109,15 +2073,11 @@ t_PHASE5_LEARN_14() {
 
 t_PHASE5_LEARN_15() {
   TNAME=PHASE5-LEARN-15
-  # Atomicity: --dry-run promote/demote leaves filesystem unchanged.
+  # Atomicity: --dry-run promote leaves filesystem unchanged.
   t_setup
   d="$MP_HOME/dry-skill"
   mkdir -p "$d/0-melting-pot"
-  mk_chunk "$d/0-melting-pot/dry.md" 0 99 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 1" \
-    "demote_when:
-  days_since_last_use_min: 999"
+  mk_chunk "$d/0-melting-pot/dry.md" 0
   before=$(cat "$d/0-melting-pot/dry.md")
   run_learn promote "dry-skill/0-melting-pot/dry.md" --dry-run
   assert_rc 0 || return 1
@@ -2132,30 +2092,16 @@ t_PHASE5_LEARN_15() {
 
 t_PHASE5_LEARN_16() {
   TNAME=PHASE5-LEARN-16
-  # eval --dry-run reports would-promote / would-demote without touching files.
+  # --dry-run demote at tier 0 reports the would-remove but keeps the file.
   t_setup
-  d="$MP_HOME/eval-skill"
-  mkdir -p "$d/0-melting-pot" "$d/3-melting-pot"
-  mk_chunk "$d/0-melting-pot/up.md" 0 99 "$TODAY_UTC" \
-    "promote_when:
-  use_count_min: 1" \
-    "demote_when:
-  days_since_last_use_min: 999"
-  mk_chunk "$d/3-melting-pot/down.md" 3 0 "2020-01-01" \
-    "promote_when:
-  use_count_min: 999" \
-    "demote_when:
-  days_since_last_use_min: 30"
-  run_learn eval --dry-run
+  d="$MP_HOME/dry-floor"
+  mkdir -p "$d/0-melting-pot"
+  mk_chunk "$d/0-melting-pot/keep.md" 0
+  run_learn demote "dry-floor/0-melting-pot/keep.md" --dry-run
   assert_rc 0 || return 1
-  assert_stdout_contains "DRY-RUN would promote: " || return 1
-  assert_stdout_contains "DRY-RUN would demote: " || return 1
-  # Files unchanged.
-  assert_file_exists "$d/0-melting-pot/up.md" || return 1
-  assert_file_exists "$d/3-melting-pot/down.md" || return 1
-  if [ -e "$d/1-melting-pot/up.md" ]; then
-    fail "$TNAME" "eval --dry-run created tier-1 copy"; return 1
-  fi
+  assert_stdout_contains "would REMOVE" || return 1
+  # File must still be present after a dry-run.
+  assert_file_exists "$d/0-melting-pot/keep.md" || return 1
   pass "$TNAME"
 }
 

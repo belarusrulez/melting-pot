@@ -348,13 +348,10 @@ mp_new_chunk_frontmatter() {
 title: "$t_esc"
 created: $today
 last_used: $today
-last_validated: $today
 use_count: 0
 provenance:
   - session: $session
   - source: live-context
-promote_when: "use_count >= 3"
-demote_when: "days_since_last_use > 90"
 depends_on: []
 status_history:
   - { tier: 0, at: $today, reason: "born from session $session" }
