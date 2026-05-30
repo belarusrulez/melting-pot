@@ -3,7 +3,7 @@ name: ruff:fix
 description: Use WHEN you want fast Python linting and auto-fixes — ruff replaces flake8 + isort + pyupgrade + autoflake at 10-100x speed.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 ruff is the Rust-backed Python linter that has eaten most of the toolchain in the last two years. This skill runs `ruff check --fix` with project-aware defaults and surfaces what ruff can't fix automatically so you can decide whether to deal with it.
 

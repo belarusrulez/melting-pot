@@ -3,7 +3,7 @@ name: git:blame-walk
 description: Use WHEN you need to trace a line of code back through its history — past renames, past refactors, past whitespace-only commits — to find the original author and intent.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 `git blame` out of the box stops at the most recent commit that touched each line, which is usually a formatter sweep or a rename. This skill drives the flags that make blame actually useful: ignore whitespace changes (`-w`), follow renames (`-C -C -C`), skip noisy commits via `.git-blame-ignore-revs`, and recurse into history to find the original-original author.
 

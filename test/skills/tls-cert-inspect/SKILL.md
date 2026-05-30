@@ -3,7 +3,7 @@ name: tls:cert-inspect
 description: Use WHEN you need to inspect a TLS certificate — subject, SANs, issuer, expiry, key type — from a live endpoint or a local PEM/DER file, before a renewal or a debugging session.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Most TLS issues fall into three buckets: certificate expired (renew), wrong SAN list (re-issue), or chain incomplete (server config). This skill is the diagnostic playbook for all three.
 

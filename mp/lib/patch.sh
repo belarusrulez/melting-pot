@@ -280,5 +280,5 @@ mp_count_failed_markers() {
 
 # ----- count_patches <skill-basename>: print integer count -----
 mp_count_patches() {
-  mp_list_patches "$1" | grep -c . || true
+  mp_list_patches "$1" | wc -l | tr -d ' '
 }

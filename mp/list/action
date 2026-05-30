@@ -295,7 +295,7 @@ case "$format" in
   text)
     # Group by origin → root.
     uniq_groups=$(mktemp -t mp_list_groups.XXXXXX)
-    awk -F'\t' '{ printf "%s\t%s\n", $3, $10 }' "$rows_file" | awk '!seen[$0]++' > "$uniq_groups"
+    awk -F'\t' '!seen[$3 SUBSEP $10]++ { printf "%s\t%s\n", $3, $10 }' "$rows_file" > "$uniq_groups"
     root_count=0
     while IFS=$(printf '\t') read -r origin_v root_v; do
       root_count=$((root_count + 1))

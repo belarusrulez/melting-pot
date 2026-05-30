@@ -206,7 +206,7 @@ The `name:` is the directory basename with **only the first `-` replaced by `:`*
 
 ## Path / config files (reference)
 
-- `~/.melt/repos.patterns` — `<abs-root><TAB><pattern>` per line. The SOLE config path (clean fork from `~/.sc/`).
+- `~/.melt/repos.patterns` — `<abs-root><TAB><pattern>` per line. The SOLE config path.
 - `~/.melt/<skill>/meta.md` — native overlay manifest.
 - `~/.melt/<skill>/N-melting-pot/` — tier dirs (suffix mandatory per Q-007).
 - `~/.melt/<skill>/patches/` — git patches against upstream content (numbered NNN-).

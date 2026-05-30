@@ -3,7 +3,7 @@ name: git:cherry-pick
 description: Use WHEN you need to copy one or more specific commits from another branch onto your current branch without merging the whole branch.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Cherry-picking is the right move for backporting a hotfix to a release branch, lifting a single useful commit out of an abandoned PR, or replaying a change someone made on `main` onto a long-lived integration branch. The skill produces a NEW commit on the current branch with the same diff (and a new SHA).
 

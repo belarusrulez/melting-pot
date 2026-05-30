@@ -3,7 +3,7 @@ name: type:mypy
 description: Run mypy in strict mode against Python sources and surface only the type errors newly introduced versus the base branch, so existing debt does not block work.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Executes `mypy --strict` (or the project's `[tool.mypy]` settings, whichever is stricter) against the package roots declared in `pyproject.toml`. Before reporting, the skill diffs the error set against a mypy run on the merge-base commit and discards any errors that already existed there — the developer sees only what they actually broke or newly introduced.
 

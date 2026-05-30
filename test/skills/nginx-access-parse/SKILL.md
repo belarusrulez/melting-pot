@@ -3,7 +3,7 @@ name: nginx:access-parse
 description: Use WHEN you have an nginx (or Apache combined-format) access log and need to parse it into structured records, then aggregate by status code, path, client, or user-agent.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill parses access logs into rows you can query — different problem from "follow a log file live" (that's `log:tail-multi`). It handles the default `combined` and `combined_with_xforwarded` formats out of the box, plus an arbitrary `log_format` string passed via `--format` to match custom directives in `nginx.conf`. Output is JSONL, CSV, or a SQLite database file ready for ad-hoc analysis.
 

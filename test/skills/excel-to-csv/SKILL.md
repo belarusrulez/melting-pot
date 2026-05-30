@@ -3,7 +3,7 @@ name: excel:to-csv
 description: Use WHEN you've been handed a .xlsx or .xls file and need to extract one or all sheets into CSV — handling merged cells, formula values, dates, and multi-sheet workbooks.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Excel files are not rectangular data despite looking like it: merged cells span multiple coordinates, formulas evaluate at open time, date columns are floats since 1900-01-01 (or 1904 on legacy Mac), and a single workbook can have ten sheets you didn't know existed. This skill flattens that mess into well-behaved CSV.
 

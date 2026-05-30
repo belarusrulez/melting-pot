@@ -3,7 +3,7 @@ name: secret:rotate-cli
 description: Use WHEN you need to rotate API keys, database credentials, or cloud access tokens stored in AWS Secrets Manager, GCP Secret Manager, or HashiCorp Vault, with downstream redeploy hooks.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill drives the full rotation dance: generate a new credential at the upstream service (IAM, RDS, Stripe, etc.), write it into the secret store under a new version, switch consumers to that version, and revoke the old credential only after consumers confirm uptake. Doing the steps out of order is the single most common cause of "we rotated the key and prod went down" incidents.
 

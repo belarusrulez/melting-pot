@@ -3,7 +3,7 @@ name: hexdump:window
 description: Use WHEN you need to inspect binary file bytes — magic numbers, BOM detection, suspicious null bytes, comparing two binaries at byte level.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Sometimes a file "won't parse" because of one stray byte — a UTF-8 BOM at the start of a config file, a Windows line ending in the middle of a sensitive position, a null terminator where one shouldn't be. This skill is the binary inspector for those cases.
 

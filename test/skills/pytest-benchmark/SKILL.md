@@ -3,7 +3,7 @@ name: pytest:benchmark
 description: Use WHEN you need to measure and compare Python function performance over multiple runs — micro-benchmarks with warmup, statistical analysis, and regression detection vs a baseline.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 `pytest-benchmark` runs a function many times, discards warmup runs, fits a statistical distribution, and reports min/mean/median/stddev/IQR. It's the right tool for "did my refactor make this slower" questions — not for system-level load tests (use `locust` or `wrk` for those).
 

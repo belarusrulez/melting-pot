@@ -3,7 +3,7 @@ name: parquet:inspect
 description: Use WHEN you've been handed a `.parquet` file and need to peek inside — see the schema, row count, a sample of rows, and per-column statistics — without writing a pandas script.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill is the `head` + `describe` + `info` combo for Parquet files. It reads the footer metadata (cheap, no full scan), prints the Arrow schema with logical types and nullability, total row count, file size on disk, row-group layout, and compression codec per column. Pass `--sample` to materialize the first N rows, or `--stats` for column-level min/max/null-count/distinct-count where available from the file metadata.
 

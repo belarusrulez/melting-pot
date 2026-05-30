@@ -3,7 +3,7 @@ name: db:rebalance-shards
 description: Use WHEN a sharded database has uneven load — one shard handling 80% of traffic — and you need to plan and execute a shard rebalance with minimal downtime.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Sharded databases drift: a single tenant grows, a hash function distributes unevenly, an availability zone fills first. This skill drives the rebalance: profile current shard sizes, plan target distribution, copy ranges to new shards, cut over consumers, and decommission the old.
 

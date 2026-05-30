@@ -3,7 +3,7 @@ name: jq:cookbook
 description: Use WHEN you need to slice, reshape, filter, or aggregate JSON on the command line with jq — and want the right idiom instead of guessing at jq's quirky syntax.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 jq is a small functional language inside a CLI, and its docs assume you already know functional programming. This skill is the cookbook: ten recipes that cover ~90% of real-world JSON munging, ready to copy-paste-adapt.
 

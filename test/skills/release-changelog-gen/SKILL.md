@@ -3,7 +3,7 @@ name: release:changelog-gen
 description: Use WHEN you're cutting a release and need to generate a CHANGELOG section from commit messages between two tags — grouped by type, with PR/issue links resolved.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Hand-written changelogs are work nobody wants to do, so they don't happen. Auto-generated changelogs are noisy when they include every "fix typo" commit. This skill walks the middle path: parse Conventional Commits between two tags, group by type (feat / fix / chore / docs / perf / refactor / test), filter chores out of the user-facing output, and emit Markdown.
 

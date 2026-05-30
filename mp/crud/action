@@ -502,7 +502,7 @@ cmd_patch_add() {
   ')
   src_bn=$(basename "$src")
   # Strip any leading NNN- from source filename.
-  stripped=$(printf "%s" "$src_bn" | sed -E 's/^[0-9]+-//')
+  stripped=$(printf "%s" "$src_bn" | sed 's/^[0-9][0-9]*-//')
   case "$stripped" in
     *.patch) target_bn="${next}-${stripped}" ;;
     *)       target_bn="${next}-${stripped}.patch" ;;

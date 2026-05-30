@@ -3,7 +3,7 @@ name: journalctl:window
 description: Use WHEN you need to extract a time-window of systemd logs for a specific service — for an incident postmortem, capacity audit, or shipping to a remote analyst.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Systemd's journal is the right log source on modern Linux servers, but `journalctl` has thirty flags and most people only know three. This skill is the recipe set for extracting useful windows.
 

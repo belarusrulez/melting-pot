@@ -1,6 +1,6 @@
 # Golden-relevance rubric
 
-This rubric defines how queries in `queries.tsv` are graded for the `sc:search` ranking-quality test suite. Every `(qid, target_skill)` annotation in `queries.tsv` uses one of the four grade levels below.
+This rubric defines how queries in `queries.tsv` are graded for the `mp:search` ranking-quality test suite. Every `(qid, target_skill)` annotation in `queries.tsv` uses one of the four grade levels below.
 
 The grades feed precision@1, precision@3, MRR, and NDCG@5 metrics. NDCG specifically needs more than binary signal — that is why a non-trivial number of grade-1 annotations is mandatory.
 

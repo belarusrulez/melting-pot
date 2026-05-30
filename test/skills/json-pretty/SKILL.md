@@ -3,7 +3,7 @@ name: json:pretty
 description: Use WHEN you have minified or sloppily-formatted JSON and want to reformat it — sorted keys, compact mode, or with a jq-style selector applied — for human reading or diffing.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill is the Swiss-army reformatter for JSON: indent it, alphabetize keys for stable diffs, collapse it back to a single line for log ingestion, or pull out a subtree with a jq-style path expression before formatting. Input can come from a file, stdin, or a URL, and the output respects terminal width when colorizing.
 

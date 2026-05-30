@@ -3,7 +3,7 @@ name: otel:trace-explore
 description: Use WHEN you have OpenTelemetry traces and need to find slow spans, understand the call graph for one request, or correlate a trace with its logs and metrics.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Traces answer "where did the time go" for one specific request. This skill walks through trace exploration in Tempo/Jaeger/Honeycomb — find the trace by ID or by attributes, render the waterfall, identify the longest span, and follow trace→log→metric correlation.
 

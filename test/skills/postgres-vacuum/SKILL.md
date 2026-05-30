@@ -3,7 +3,7 @@ name: postgres:vacuum
 description: Use WHEN postgres performance is degrading from table bloat or you've just done a large delete/update — run VACUUM, ANALYZE, and surface tables that need attention.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Postgres's MVCC keeps old row versions until VACUUM reclaims them. Heavy update/delete workloads bloat tables and indexes, query plans go stale, and slowly the whole database feels sluggish. This skill drives the right blend of VACUUM/ANALYZE based on what the current state looks like.
 

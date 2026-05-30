@@ -3,7 +3,7 @@ name: merge:conflict-resolver
 description: Use WHEN git reports CONFLICT during merge, rebase, cherry-pick, or stash apply — walks through three-way resolution, hunk selection, and verification.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 When two branches touch the same lines, git stops and asks you to choose. This skill is the structured playbook: identify conflicting files, understand the three-way context (ours / theirs / base), pick the right hunks, and verify the result before continuing the operation.
 

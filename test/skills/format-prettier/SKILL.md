@@ -3,7 +3,7 @@ name: format:prettier
 description: Apply prettier across JS, TS, JSON, CSS, SCSS, and Markdown using the project's resolved config whenever the user wants consistent formatting.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Runs `prettier --write` over the working tree, honoring `.prettierrc{,.json,.yaml,.js}`, `prettier` keys in `package.json`, and `.prettierignore` exclusion lists. The skill auto-detects the package manager (`pnpm`, `yarn`, `npm`, `bun`) so it can invoke the locally-pinned prettier binary rather than a global install, guaranteeing formatting parity with CI.
 

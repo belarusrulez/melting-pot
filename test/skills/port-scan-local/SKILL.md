@@ -3,7 +3,7 @@ name: port:scan-local
 description: Enumerate listening TCP/UDP ports on this machine and map each to the owning process, without requiring nmap or root in most cases.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Use this when a user asks "what's running on port 8080", "why can't I bind to 5432", or wants a quick socket inventory before launching a service. Prefer the modern `ss -tulpn` on Linux, fall back to `lsof -iTCP -sTCP:LISTEN -P -n` on macOS, and `netstat -ano` on Windows. Always emit a table of `proto | local addr | port | pid | command`.
 

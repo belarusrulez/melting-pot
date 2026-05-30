@@ -3,7 +3,7 @@ name: terraform:state-mv
 description: Use WHEN you've refactored Terraform modules or renamed resources and need to move state entries so `terraform plan` stops wanting to destroy-and-recreate everything.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Terraform identifies resources by their address (`module.web.aws_instance.api`). Rename a module or move a resource into a submodule and Terraform sees the old address gone and a new one appearing — its instinct is to destroy and recreate, which is catastrophic for databases, EIPs, anything stateful. `terraform state mv` rewrites the state so the new address points at the existing object.
 

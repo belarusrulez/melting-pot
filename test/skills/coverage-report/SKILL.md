@@ -3,7 +3,7 @@ name: coverage:report
 description: Produce an HTML coverage report, open it in the browser, and surface every source file below the 80% line-coverage threshold.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Generates a per-file and per-package coverage breakdown using `coverage.py` for Python projects and `c8` / `nyc` for JavaScript ones. After collection the skill renders an HTML report under `htmlcov/`, opens it via the OS default browser, and prints a terminal summary highlighting low-coverage hotspots in red. Branch coverage is enabled by default; statement-only mode is available via `--no-branch`.
 

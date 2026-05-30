@@ -3,7 +3,7 @@ name: yaml:pretty
 description: Use WHEN you have a YAML file with inconsistent indentation, sloppy key order, or unquoted strings that mean the wrong thing — reformat it to a canonical style.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 YAML is more permissive than is good for it. "off", "yes", "no", "1.0" parse as booleans/numbers; tab indentation is forbidden; the same document can be encoded six ways. This skill canonicalizes a YAML file to a single house style: 2-space indent, flow-style for short collections, block-style for long ones, quoted strings where ambiguity bites, sorted keys when requested.
 

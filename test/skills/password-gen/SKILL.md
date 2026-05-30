@@ -3,7 +3,7 @@ name: password:gen
 description: Generate cryptographically strong passwords or Diceware-style passphrases and optionally pipe the result straight into the system clipboard.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Use when the user asks for "a strong password", "a memorable passphrase", "20 random characters", or is rotating credentials and wants something they will not have to type. Default to character passwords for service accounts and to Diceware passphrases for anything a human has to recall.
 

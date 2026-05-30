@@ -3,7 +3,7 @@ name: pdf:viewer-cli
 description: Use WHEN you need to view, navigate, or thumbnail a PDF from the terminal — render pages to ASCII or image previews without opening a GUI viewer.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill is for *viewing* PDFs, not extracting data from them (use `pdf:extract-tables` if you want the numbers out). It wraps `pdftoppm`, `mupdf-tools`, and a terminal image protocol (Kitty / iTerm2 / Sixel) so you can flip through a PDF in the terminal — useful for grepping the right page before extracting, or for SSH sessions where opening a GUI viewer is impractical.
 

@@ -3,7 +3,7 @@ name: docker:build-cache
 description: Use WHEN you need to build a Docker image with BuildKit, leverage a remote layer cache to speed up CI, and push the result to a registry.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill builds and pushes container images using BuildKit's cache backends — without one, every CI run pays the full cost of `apt-get install` and `npm ci` on a cold daemon. The trick is pairing `--cache-from` (read) with `--cache-to` (write), so the cache is populated on every push and reused on every pull.
 

@@ -303,7 +303,7 @@ EOF
         fi
       done
     done
-  done | tee /dev/null
+  done
   return 0
 }
 
@@ -574,8 +574,7 @@ cmd_harvest() {
         [ -z "$cname" ] && cname="harvested-$(date -u +%s)-$i"
         case "$cname" in *.md) ;; *) cname="$cname.md" ;; esac
         sd="$MP_HOME/$skill"
-        [ -d "$sd" ] || mkdir -p "$sd/0-melting-pot"
-        [ -d "$sd/0-melting-pot" ] || mkdir -p "$sd/0-melting-pot"
+        mkdir -p "$sd/0-melting-pot"
         cp="$sd/0-melting-pot/$cname"
         if [ -e "$cp" ]; then
           mp_warn "skip create #$i: target exists: $cp"
@@ -589,11 +588,11 @@ cmd_harvest() {
         ;;
       promote)
         c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        [ -n "$c" ] && cmd_promote "$c" || mp_warn "skip promote #$i: missing chunk"
+        if [ -n "$c" ]; then cmd_promote "$c"; else mp_warn "skip promote #$i: missing chunk"; fi
         ;;
       demote)
         c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        [ -n "$c" ] && cmd_demote "$c" || mp_warn "skip demote #$i: missing chunk"
+        if [ -n "$c" ]; then cmd_demote "$c"; else mp_warn "skip demote #$i: missing chunk"; fi
         ;;
       update)
         # Updates are out of scope for harvest --apply v1 (need diff merge);

@@ -32,10 +32,10 @@ Flags compose: `sh ~/.melt/list/action --root /Users/me/Projects/my-skills --nam
 - **text** (default) — aligned grouping by origin → root:
 
   ```
-  [reg] /Users/me/Projects/skill-core/sc (3 skills)
+  [reg] /Users/me/Projects/melting-pot/mp (3 skills)
     mp:search              Three-axis search across patched+overlay content
       tiers=legacy chunks=1 patches=0 failed=0
-      → /Users/me/Projects/skill-core/sc/search
+      → /Users/me/Projects/melting-pot/mp/search
     …
 
   [ovl] /Users/me/.melt (2 skills)

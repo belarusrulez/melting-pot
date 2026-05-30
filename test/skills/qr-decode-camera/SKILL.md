@@ -3,7 +3,7 @@ name: qr:decode-camera
 description: Use WHEN you have a QR code in an image, on a webcam stream, or in a PDF screenshot, and need to decode the encoded payload — text, URL, WiFi credentials, vCard.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Decoding QR is the inverse of `qr:make` — you have a code, you want the bytes. The two reliable engines are `zbarimg` (libzbar) and `zxing-cpp`, both single-binary installs. For a live webcam stream, `zbarcam` opens `/dev/video0` and prints decoded payloads as they're seen.
 

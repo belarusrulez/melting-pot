@@ -136,4 +136,4 @@ Manual `reindex` is only needed to force a rebuild (e.g., schema changes).
 - `mp:list` — flat inventory of every skill the pot can see.
 - `mp:crud` — scaffold, validate, trash, restore skills; manage patches against third-party skills.
 - `mp:learn` — lifecycle ops (promote/demote/cleanup/refactor/patch-triage).
-- `~/.melt/repos.patterns` — user-edited list of registered roots (clean fork from `~/.sc/`; melting-pot reads ONLY this path).
+- `~/.melt/repos.patterns` — user-edited list of registered roots (melting-pot reads ONLY this path).

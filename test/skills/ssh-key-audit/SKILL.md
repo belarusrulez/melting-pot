@@ -3,7 +3,7 @@ name: ssh:key-audit
 description: Use WHEN you need to audit SSH keys — find weak keys (DSA, short RSA), find unrotated keys, enumerate which keys can reach which hosts, before a compliance review.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 SSH key debt is the silent cousin of IAM debt. Every developer has at least one key on every host; departing employees often leave keys in `authorized_keys` files months after they've left. This skill audits local and known-host key state.
 

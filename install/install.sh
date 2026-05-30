@@ -17,10 +17,6 @@
 #
 # Flags:
 #   --dry-run         — print what would happen; do not write anything.
-#   --copy-from-sc    — one-time migration: cp ~/.sc/repos.patterns →
-#                       $MP_PATTERNS if destination is missing. No-op
-#                       otherwise. Per Q-008 (clean fork, no runtime
-#                       fallback).
 #   --emit-manifest-only
 #                     — write the manifest + task-intake landing, skip
 #                       everything else (seed, copy hooks). Useful for
@@ -50,7 +46,6 @@ MP_PATTERNS=${MP_PATTERNS:-$MP_HOME/repos.patterns}
 MP_NUDGE_THRESHOLD=${MP_NUDGE_THRESHOLD:-20}
 
 DRY_RUN=0
-COPY_FROM_SC=0
 MANIFEST_ONLY=0
 
 # ----- small helpers -----
@@ -69,7 +64,7 @@ action()  {
 
 usage() {
   cat <<USAGE
-usage: install.sh [--dry-run] [--copy-from-sc] [--emit-manifest-only] [-h|--help]
+usage: install.sh [--dry-run] [--emit-manifest-only] [-h|--help]
 
 Bootstraps the melting-pot overlay at \$MP_HOME (default ~/.melt) and emits
 a HARNESS-AGNOSTIC manifest the calling LLM reads to register the hook
@@ -83,7 +78,6 @@ USAGE
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)             DRY_RUN=1; shift ;;
-    --copy-from-sc)        COPY_FROM_SC=1; shift ;;
     --emit-manifest-only)  MANIFEST_ONLY=1; shift ;;
     -h|--help)             usage; exit 0 ;;
     --)                    shift; break ;;
@@ -114,6 +108,12 @@ do_cp() {
   [ "$DRY_RUN" = 1 ] && return 0
   cp "$src" "$dst"
 }
+do_ln() {
+  src="$1"; dst="$2"
+  action ln "$src -> $dst"
+  [ "$DRY_RUN" = 1 ] && return 0
+  ln -sf "$src" "$dst"
+}
 do_write() {
   # $1 = destination path; stdin = content
   dst="$1"
@@ -133,9 +133,9 @@ if [ "$MANIFEST_ONLY" = 0 ]; then
   do_mkdir "$MP_HOME/search"
   do_mkdir "$MP_HOME/trash"
 
-  # repos.patterns: only write a stub if both --copy-from-sc was NOT used and
-  # the destination is missing. We never overwrite an existing patterns file.
-  if [ ! -e "$MP_PATTERNS" ] && [ "$COPY_FROM_SC" = 0 ]; then
+  # repos.patterns: write a stub only if the destination is missing. We never
+  # overwrite an existing patterns file.
+  if [ ! -e "$MP_PATTERNS" ]; then
     action write "$MP_PATTERNS (sample)"
     if [ "$DRY_RUN" = 0 ]; then
       cat > "$MP_PATTERNS" <<'PATTERNS'
@@ -145,22 +145,8 @@ if [ "$MANIFEST_ONLY" = 0 ]; then
 #
 # Examples:
 #   $HOME/skills	*
-#   $HOME/work/skill-core/test/skills	*
+#   $HOME/Projects/melting-pot/mp	*
 PATTERNS
-    fi
-  fi
-
-  # --copy-from-sc: one-time migration. Only fires if destination is missing
-  # AND the source exists. Idempotent — re-runs are no-ops.
-  if [ "$COPY_FROM_SC" = 1 ]; then
-    sc_src="$HOME/.sc/repos.patterns"
-    if [ -e "$MP_PATTERNS" ]; then
-      info "--copy-from-sc: destination $MP_PATTERNS already exists; no-op"
-    elif [ ! -e "$sc_src" ]; then
-      warn "--copy-from-sc: source $sc_src not found; nothing to migrate"
-    else
-      do_cp "$sc_src" "$MP_PATTERNS"
-      info "migrated $sc_src -> $MP_PATTERNS"
     fi
   fi
 
@@ -177,6 +163,21 @@ PATTERNS
     if [ "$DRY_RUN" = 0 ]; then
       chmod +x "$dst" 2>/dev/null || :
     fi
+  done
+
+  # Skill actions → $MP_HOME/<skill>/action. Each subdir of mp/ with a SKILL.md
+  # is a shipped skill; symlink its `action` CLI so the SKILL.md invocation
+  # `sh ~/.melt/<skill>/action` resolves. The SKILL.md files themselves are
+  # registered with the harness by the calling LLM — see install/INSTALL.md.
+  # NOTE: the do_* helpers assign bare globals (d/src/dst) — POSIX sh has no
+  # function-local scope — so use a loop var (sd) they do not touch, and snapshot
+  # the action path BEFORE calling do_mkdir (which would clobber it).
+  for sd in "$MP_INSTALL_ROOT"/mp/*/; do
+    [ -f "${sd}SKILL.md" ] || continue
+    name=$(basename "$sd")
+    skill_action="${sd}action"
+    do_mkdir "$MP_HOME/$name"
+    [ -f "$skill_action" ] && do_ln "$skill_action" "$MP_HOME/$name/action"
   done
 fi
 
@@ -278,14 +279,14 @@ MANIFEST
 fi
 
 # Also write task-intake.md to its landing location ($MP_HOME/task-intake.md).
-if [ "$MANIFEST_ONLY" = 0 ] || [ "$MANIFEST_ONLY" = 1 ]; then
-  ti_src="$MP_INSTALL_ROOT/install/task-intake.md"
-  if [ ! -f "$ti_src" ]; then
-    err "missing task-intake source: $ti_src"
-    exit 3
-  fi
-  do_cp "$ti_src" "$task_intake_dst"
+# Copied in both normal and --emit-manifest-only mode: re-running with
+# --emit-manifest-only is the supported way to refresh the manifest + task-intake.
+ti_src="$MP_INSTALL_ROOT/install/task-intake.md"
+if [ ! -f "$ti_src" ]; then
+  err "missing task-intake source: $ti_src"
+  exit 3
 fi
+do_cp "$ti_src" "$task_intake_dst"
 
 # ----- step 3: verify harness config was NOT mutated (Q-003 invariant) -----
 if [ -f "$HARNESS_CONFIG" ]; then
@@ -307,14 +308,25 @@ cat <<NEXT
 
 Next steps — the CALLING LLM should now:
 
-  1. Read $emit_manifest_dst
+  1. Register every shipped skill with the harness. A skill = any subdir of
+     $MP_INSTALL_ROOT/mp/ containing a SKILL.md; the frontmatter 'name:' is
+     its name. Discover them with:
+       find $MP_INSTALL_ROOT/mp -mindepth 2 -maxdepth 2 -name SKILL.md
+     Register each SKILL.md the same way your harness expects. Their actions
+     are already symlinked at \$MP_HOME/<skill>/action.
+  2. Read $emit_manifest_dst
      (or the repo-side placeholder at $manifest_src for the human-readable
      version with \`~/.melt/...\` paths).
-  2. For each row under '## Hooks', register the script at the listed event
+  3. For each row under '## Hooks', register the script at the listed event
      slot in the active harness (Claude Code: ~/.claude/settings.json;
      Cursor: .cursorrules; etc.).
-  3. Append the contents of $task_intake_dst to the harness's global rules
+  4. Append the contents of $task_intake_dst to the harness's global rules
      file (Claude Code: ~/.claude/CLAUDE.md).
+  5. Build the index + smoke test:
+       sh \$MP_HOME/search/action reindex
+       sh \$MP_HOME/list/action --count
+
+See $MP_INSTALL_ROOT/install/INSTALL.md for the full agent-run bootstrap.
 
 This installer DELIBERATELY does NOT mutate ~/.claude/settings.json or any
 other harness config. That is the calling LLM's job (Q-003).

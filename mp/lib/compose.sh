@@ -97,7 +97,7 @@ mp_compose_skill() {
   manifest=$(mp_manifest_path "$src")
   if [ -z "$manifest" ] && { [ "$origin" = "mix" ] || [ "$origin" = "reg" ]; }; then
     # Look the upstream path up via discovery against registered roots.
-    ups=$(mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+    ups=$(mp_parse_patterns | while IFS=$(printf '\t') read -r root pat; do
       root_e=$(mp_expand_root "$root")
       [ -d "$root_e/$skill" ] || continue
       printf "%s\n" "$root_e/$skill"

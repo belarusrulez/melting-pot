@@ -3,7 +3,7 @@ name: prometheus:query
 description: Use WHEN you need to query Prometheus metrics with PromQL — investigate a saturation, compute SLO burn rate, or compare two time windows over the same series.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 PromQL is small but counterintuitive: rate vs increase, `_count` vs `_sum`, instant vector vs range vector. This skill is the working playbook for the queries you actually need during an incident or for an SLO review.
 

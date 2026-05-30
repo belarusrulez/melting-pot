@@ -3,7 +3,7 @@ name: csv:validate-schema
 description: Use WHEN you need to assert a CSV file matches an expected schema — required columns present, types coerce, regex patterns hold, no nulls in non-null columns — before downstream ingestion.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill catches malformed CSVs at the boundary so they don't crash the ETL six steps later. You declare an expected schema (column name, type, nullable, regex, allowed-values) in a small YAML file; the skill streams the CSV and reports every row that violates the contract, with the offending column and value.
 

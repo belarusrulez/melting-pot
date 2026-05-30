@@ -3,7 +3,7 @@ name: aws:s3-sync
 description: Use WHEN you need to mirror files between a local directory and an S3 bucket, with optional deletion of orphans, dry-run previews, and exclude patterns.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill wraps `aws s3 sync` for bidirectional mirroring between local filesystems and S3 buckets. It covers the common pitfalls: forgetting `--delete` (leaving stale objects in the destination), forgetting `--dryrun` (and nuking production assets), and getting bitten by `--exclude`/`--include` ordering (rules are evaluated left-to-right and the LAST match wins).
 

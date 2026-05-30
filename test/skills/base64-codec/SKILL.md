@@ -3,7 +3,7 @@ name: base64:codec
 description: Use WHEN you need to base64-encode or decode a string, file, or pipe — with URL-safe variants, line-wrapping control, and a quick check for double-encoding.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill is the no-think base64 helper for shell work: encode a secret for a Kubernetes Secret manifest, decode a JWT payload's middle segment, or convert a tiny image into a `data:` URI. The standard primitive is `base64` (BSD on macOS, GNU on Linux) with subtle flag differences — this skill papers over those so the same invocation works everywhere.
 

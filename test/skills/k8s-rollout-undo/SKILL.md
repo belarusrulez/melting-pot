@@ -3,7 +3,7 @@ name: k8s:rollout-undo
 description: Use WHEN a kubernetes deploy went bad — roll back a Deployment, StatefulSet, or DaemonSet to a previous revision quickly while keeping audit trail.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 When a bad image is live and customers are seeing errors, you have ~minutes to roll back. This skill drives `kubectl rollout` end to end — find the bad revision, undo to the last-known-good, verify, and capture what just happened for the post-mortem.
 

@@ -243,16 +243,16 @@ t_LIB_DISC_03() {
 
 t_LIB_DISC_04() {
   TNAME=LIB-DISC-04
-  # Q-008: discover.sh MUST NOT read ~/.sc/repos.patterns. Even if a (fake)
-  # ~/.sc exists with a patterns file pointing at a fixture, discovery against
-  # an EMPTY ~/.melt/repos.patterns yields zero skills.
+  # discover.sh MUST read ONLY $MP_PATTERNS. Even if a stray patterns file
+  # exists elsewhere under HOME pointing at a fixture, discovery against an
+  # EMPTY ~/.melt/repos.patterns yields zero skills.
   t_setup
   reg="$TDIR/upstream"
   mk_legacy_skill "$reg/git-rebase" "git:rebase" "upstream"
-  # Simulate a leftover ~/.sc by setting HOME to a fake place with a .sc dir.
+  # Simulate a stray config by setting HOME to a fake place with one.
   fake_home="$TDIR/fake-home"
-  mkdir -p "$fake_home/.sc"
-  printf "%s\t*\n" "$reg" > "$fake_home/.sc/repos.patterns"
+  mkdir -p "$fake_home/.other-skills"
+  printf "%s\t*\n" "$reg" > "$fake_home/.other-skills/repos.patterns"
   # MP_PATTERNS is empty (only the file exists if t_patterns was called, which
   # it wasn't). Run discovery with HOME swapped — but MP_PATTERNS still wins.
   HOME="$fake_home" run_lib mp_discover_skills
@@ -1106,14 +1106,14 @@ EOF
 
 t_PHASE2_SRCH_13() {
   TNAME=PHASE2-SRCH-13
-  # Q-008 sandbox: discovery reads ONLY $MP_PATTERNS — a fake ~/.sc/ is ignored.
+  # Sandbox: discovery reads ONLY $MP_PATTERNS — a stray config under HOME is ignored.
   t_setup
   reg="$TDIR/upstream"
   mk_legacy_skill "$reg/git-rebase" "git:rebase" "rewrite history"
-  # Do NOT add to $MP_PATTERNS. Instead, simulate a stale ~/.sc/.
+  # Do NOT add to $MP_PATTERNS. Instead, simulate a stray config under HOME.
   fake_home="$TDIR/fake-home"
-  mkdir -p "$fake_home/.sc"
-  printf "%s\t*\n" "$reg" > "$fake_home/.sc/repos.patterns"
+  mkdir -p "$fake_home/.other-skills"
+  printf "%s\t*\n" "$reg" > "$fake_home/.other-skills/repos.patterns"
   HOME="$fake_home" run_search "git" "rebase" "history"
   # Empty MP_PATTERNS = no skills indexed = exit 1.
   assert_rc 1 || return 1
@@ -1158,6 +1158,31 @@ t_PHASE2_SRCH_15() {
   fi
   # And the symlinked tier dir should exist.
   assert_symlink_to "$MP_HOME/native-skill/3-melting-pot" "$reg/native-skill/3-melting-pot" || return 1
+  pass "$TNAME"
+}
+
+t_PHASE2_SRCH_16() {
+  TNAME=PHASE2-SRCH-16
+  # Regression: --format json with >=2 results must be valid JSON. The old
+  # hand-joined string builder lost its comma flag in a pipe subshell, so it
+  # emitted comma-less (invalid) JSON for two or more objects. JSON is now
+  # produced by sqlite json_group_array, which always comma-joins correctly.
+  t_setup
+  reg="$TDIR/upstream"
+  mk_legacy_skill "$reg/git-rebase"  "git:rebase"  "rewrite git history"
+  mk_legacy_skill "$reg/git-reflog"  "git:reflog"  "recover git history via reflog"
+  mk_legacy_skill "$reg/git-bisect"  "git:bisect"  "git history bisect search"
+  t_patterns "$reg"
+  run_search search --format json "git" "history" "rebase"
+  assert_rc 0 || return 1
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  if [ "$valid" != "1" ]; then
+    fail "$TNAME" "invalid JSON for multi-result search; got: $(cat "$OUT")"; return 1
+  fi
+  n=$(printf "select json_array_length(readfile('%s'),'\$.results');\n" "$OUT" | sqlite3)
+  if [ "${n:-0}" -lt 2 ]; then
+    fail "$TNAME" "expected >=2 results to exercise comma-join; got n=$n: $(cat "$OUT")"; return 1
+  fi
   pass "$TNAME"
 }
 
@@ -2258,38 +2283,6 @@ EOF
   pass "$TNAME"
 }
 
-t_PHASE6_IN_06() {
-  TNAME=PHASE6-IN-06
-  # --copy-from-sc copies once when dest is missing; no-ops when present.
-  t_setup
-  fake_home="$TDIR/fake-home"
-  mkdir -p "$fake_home/.sc"
-  printf "%s\t*\n" "/some/upstream/root" > "$fake_home/.sc/repos.patterns"
-  # First run: --copy-from-sc should migrate the file.
-  HOME="$fake_home" MP_HOME="$fake_home/.melt" MP_PATTERNS="$fake_home/.melt/repos.patterns" \
-    sh "$INSTALL_BIN" --copy-from-sc > "$OUT" 2> "$ERR"
-  RC=$?
-  assert_rc 0 || return 1
-  assert_file_exists "$fake_home/.melt/repos.patterns" || return 1
-  body=$(cat "$fake_home/.melt/repos.patterns")
-  if ! printf "%s" "$body" | grep -q "/some/upstream/root"; then
-    fail "$TNAME" "migrated content not present; got: $body"; return 1
-  fi
-  # Mutate the source and re-run with --copy-from-sc; dest must NOT change
-  # because the dest already exists (idempotent migration).
-  printf "%s\t*\n" "/different/root" > "$fake_home/.sc/repos.patterns"
-  HOME="$fake_home" MP_HOME="$fake_home/.melt" MP_PATTERNS="$fake_home/.melt/repos.patterns" \
-    sh "$INSTALL_BIN" --copy-from-sc > "$OUT" 2> "$ERR"
-  RC=$?
-  assert_rc 0 || return 1
-  body2=$(cat "$fake_home/.melt/repos.patterns")
-  if [ "$body2" != "$body" ]; then
-    fail "$TNAME" "--copy-from-sc overwrote an existing destination; before=$body after=$body2"
-    return 1
-  fi
-  pass "$TNAME"
-}
-
 t_PHASE6_IN_07() {
   TNAME=PHASE6-IN-07
   # --dry-run writes nothing to the sandboxed $MP_HOME, and the repo-side
@@ -2325,12 +2318,42 @@ t_PHASE6_IN_08() {
   pass "$TNAME"
 }
 
+t_PHASE6_IN_09() {
+  TNAME=PHASE6-IN-09
+  # Installer symlinks every shipped skill's action into $MP_HOME/<skill>/action
+  # so `sh ~/.melt/<skill>/action` resolves. Regression guard for the do_mkdir
+  # global-var clobber that previously skipped the symlink step.
+  t_setup
+  fake_home="$TDIR/fake-home"
+  run_install
+  assert_rc 0 || return 1
+  for skill in search list crud load learn; do
+    link="$fake_home/.melt/$skill/action"
+    if [ ! -L "$link" ]; then
+      fail "$TNAME" "missing action symlink: $link"; return 1
+    fi
+    if [ ! -f "$link" ]; then
+      fail "$TNAME" "action symlink does not resolve to a file: $link"; return 1
+    fi
+    if [ "$(readlink "$link")" != "$ROOT/mp/$skill/action" ]; then
+      fail "$TNAME" "symlink target wrong: $(readlink "$link")"; return 1
+    fi
+  done
+  # End-to-end: the symlinked search CLI runs and reports usage/help cleanly.
+  HOME="$fake_home" MP_HOME="$fake_home/.melt" MP_PATTERNS="$fake_home/.melt/repos.patterns" \
+    sh "$fake_home/.melt/search/action" --help > "$OUT" 2> "$ERR"
+  if [ "$?" -ne 0 ]; then
+    fail "$TNAME" "symlinked search action --help failed: $(cat "$ERR")"; return 1
+  fi
+  pass "$TNAME"
+}
+
 # ============================================================================
-# Section 12: Phase 7 — test corpus carry-over from skill-core
+# Section 12: Phase 7 — test corpus
 # ============================================================================
 #
-# The corpus at test/skills/ was copied verbatim from skill-core's test/skills
-# (78 fixtures) and augmented with:
+# The corpus at test/skills/ is a set of synthetic skill fixtures
+# (78 fixtures) augmented with:
 #   - git-rebase tier dirs (0-melting-pot/ + 3-melting-pot/) — mix-format
 #   - melting-pot-native-demo/ — native-only fixture with meta.md + tier dirs
 #
@@ -2456,6 +2479,7 @@ LIB-COMPOSE-01 LIB-COMPOSE-02 LIB-COMPOSE-03 LIB-COMPOSE-04
 PHASE2-SRCH-01 PHASE2-SRCH-02 PHASE2-SRCH-03 PHASE2-SRCH-04 PHASE2-SRCH-05
 PHASE2-SRCH-06 PHASE2-SRCH-07 PHASE2-SRCH-08 PHASE2-SRCH-09 PHASE2-SRCH-10
 PHASE2-SRCH-11 PHASE2-SRCH-12 PHASE2-SRCH-13 PHASE2-SRCH-14 PHASE2-SRCH-15
+PHASE2-SRCH-16
 PHASE4-LOAD-01 PHASE4-LOAD-02 PHASE4-LOAD-03 PHASE4-LOAD-04 PHASE4-LOAD-05
 PHASE4-LOAD-06 PHASE4-LOAD-07 PHASE4-LOAD-08 PHASE4-LOAD-09
 PHASE3-LIST-01 PHASE3-LIST-02 PHASE3-LIST-03 PHASE3-LIST-04 PHASE3-LIST-05
@@ -2468,7 +2492,7 @@ PHASE5-LEARN-06 PHASE5-LEARN-07 PHASE5-LEARN-08 PHASE5-LEARN-09 PHASE5-LEARN-10
 PHASE5-LEARN-11 PHASE5-LEARN-12 PHASE5-LEARN-13 PHASE5-LEARN-14 PHASE5-LEARN-15
 PHASE5-LEARN-16
 PHASE6-IN-01 PHASE6-IN-02 PHASE6-IN-03 PHASE6-IN-04 PHASE6-IN-05
-PHASE6-IN-06 PHASE6-IN-07 PHASE6-IN-08
+PHASE6-IN-07 PHASE6-IN-08 PHASE6-IN-09
 PHASE7-CORPUS-01 PHASE7-CORPUS-02 PHASE7-CORPUS-03 PHASE7-CORPUS-04"
 
 while [ "$#" -gt 0 ]; do

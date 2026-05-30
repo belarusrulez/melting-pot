@@ -3,7 +3,7 @@ name: terraform:plan-review
 description: Use WHEN you need to render a terraform plan as a reviewable diff for a PR, with resource-by-resource change summary and an estimated cost delta.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill turns the firehose of `terraform plan` output into something humans (and reviewers) can actually scan. The trick is to capture the plan as a binary file, then render it twice — once as JSON for tooling (Infracost, policy engines) and once as a clean diff for the PR comment. Reviewing the raw `plan` stdout is a recipe for missing the one resource being destroyed in a sea of no-ops.
 

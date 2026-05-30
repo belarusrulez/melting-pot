@@ -3,7 +3,7 @@ name: regex:test
 description: Use WHEN you're drafting or debugging a regular expression and want an interactive REPL — paste a pattern plus sample text, see every match highlighted with captured groups and named backreferences.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 This skill is a local, dependency-free alternative to regex101.com: launch it, paste your pattern on one line, paste sample input below, and it prints each match with byte offsets, group captures, and named groups in a side-by-side table. Flags can be toggled live (`i` case-insensitive, `m` multiline, `s` dotall, `x` extended) without restarting the loop, and the engine is swappable between PCRE, Python's `re`, Go's `regexp` (RE2), and JavaScript flavors so you can verify portability before shipping.
 

@@ -78,7 +78,7 @@ resolve_basename() {
     # registered upstream path with the same basename.
     manifest=$(mp_manifest_path "$d")
     if [ -z "$manifest" ]; then
-      ups=$(mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+      ups=$(mp_parse_patterns | while IFS=$(printf '\t') read -r root pat; do
         root_e=$(mp_expand_root "$root")
         if [ -d "$root_e/$b" ]; then
           cand=$(mp_manifest_path "$root_e/$b")

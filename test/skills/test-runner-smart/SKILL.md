@@ -3,7 +3,7 @@ name: test:runner-smart
 description: Auto-detect the project's test framework and run the full suite (or a filtered subset) when the user says "run tests" without specifying tooling.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Smart test runner that inspects the working tree to choose the correct harness before executing. It looks for `pytest.ini`/`pyproject.toml` for Python, `package.json` test scripts for Node, `go.mod` for Go, and `Cargo.toml` for Rust, then dispatches to `pytest`, `npm test` / `jest` / `vitest`, `go test ./...`, or `cargo test` respectively. Multi-language monorepos are handled by running each detected suite sequentially and aggregating exit codes.
 

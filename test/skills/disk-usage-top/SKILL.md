@@ -3,7 +3,7 @@ name: disk:usage-top
 description: Locate the top-N largest directories and files under a given path, starting with a fast approximate pass and refining only if the user wants exact bytes.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Invoke when a user says "my disk is full", "what's eating /var", or "find the biggest folders in my home directory". The fast first pass is `du -h -d 2 <path> 2>/dev/null | sort -h | tail -n 20` — depth-limited so it returns in seconds even on multi-TB volumes. For pure file (not directory) discovery, prefer `find <path> -type f -printf '%s\t%p\n' 2>/dev/null | sort -nr | head -n 20`.
 

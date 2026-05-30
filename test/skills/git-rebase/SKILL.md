@@ -3,7 +3,7 @@ name: git:rebase
 description: Use WHEN you need to rewrite local commit history — squash WIP commits, reorder, edit messages, or replay work onto an updated base branch.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 Interactive rebase is the workhorse for tidying a feature branch before review. The skill covers `git rebase -i`, the todo-list editor verbs (`pick`, `reword`, `edit`, `squash`, `fixup`, `drop`, `exec`), and how to recover when things go sideways via `git rebase --abort` or `ORIG_HEAD`.
 

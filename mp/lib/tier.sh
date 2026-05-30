@@ -56,7 +56,7 @@ mp_list_tiers_present() {
   if [ -f "$d/SKILL.md" ]; then
     printf "5\n" >> "$tmp"
   fi
-  sort -u "$tmp" | awk 'NR>1 {printf ","} {printf "%s",$0} END{print ""}'
+  sort -u "$tmp" | awk '{a=a","$0} END{print substr(a,2)}'
   rm -f "$tmp"
 }
 

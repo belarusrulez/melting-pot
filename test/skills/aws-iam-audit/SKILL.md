@@ -3,7 +3,7 @@ name: aws:iam-audit
 description: Use WHEN you need to audit AWS IAM — find stale access keys, over-privileged roles, unused users, and policies that grant `*:*` — before a compliance review or incident.
 ---
 
-> Test fixture for sc:search search system.
+> Test fixture for mp:search search system.
 
 IAM debt accumulates: every contractor who left in 2022 still has a user with active keys, every Lambda has `AdministratorAccess` "temporarily", every cross-account role trusts `Principal: "*"`. This skill batch-pulls IAM state via the AWS API and surfaces the worst offenders.
 

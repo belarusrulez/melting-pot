@@ -3,8 +3,7 @@
 # sourcing script owns that.
 #
 # Reads ONLY $MP_PATTERNS (default ~/.melt/repos.patterns). There is NO
-# runtime fallback to ~/.sc/repos.patterns; the installer offers a one-time
-# --copy-from-sc migration but melting-pot does not read the old path.
+# runtime fallback to any other path.
 
 # ----- output helpers -----
 mp_warn() { printf 'WARN: %s\n' "$*" >&2; }
@@ -241,7 +240,7 @@ mp_symlink_upstream_tiers() {
 # downstream consumers (search reindex, compose) read uniformly through the
 # overlay path. The emitted `path` is the overlay path in that case.
 #
-# Pattern semantics inherited from sc: registered roots filtered by glob /
+# Pattern semantics: registered roots filtered by glob /
 # regex via $MP_PATTERNS. Overlay roots are walked unconditionally.
 mp_discover_skills() {
   [ -n "${MP_HOME:-}" ] || { mp_err "MP_HOME unset"; return 1; }
@@ -250,7 +249,7 @@ mp_discover_skills() {
   # --- collect registered-layer skill paths from $MP_PATTERNS roots ---
   reg_raw=$(mktemp -t mp_disc_reg.XXXXXX)
   : > "$reg_raw"
-  mp_parse_patterns | while IFS=$(printf '\t') read root pat; do
+  mp_parse_patterns | while IFS=$(printf '\t') read -r root pat; do
     [ -n "$root" ] || continue
     root_e=$(mp_expand_root "$root")
     if [ ! -d "$root_e" ]; then
@@ -261,19 +260,19 @@ mp_discover_skills() {
       re:*)
         regex="${pat#re:}"
         # A skill is "any directory containing meta.md or SKILL.md".
-        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read p; do
+        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read -r p; do
           d=$(dirname "$p")
           b=$(basename "$d")
           if printf "%s\n" "$b" | grep -E -q -- "$regex"; then printf "%s\n" "$d"; fi
         done
         ;;
       "*")
-        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read p; do
+        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read -r p; do
           printf "%s\n" "$(dirname "$p")"
         done
         ;;
       *)
-        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read p; do
+        find "$root_e" -type f \( -name SKILL.md -o -name meta.md \) 2>/dev/null | while read -r p; do
           d=$(dirname "$p")
           b=$(basename "$d")
           # shellcheck disable=SC2254
