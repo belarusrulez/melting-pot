@@ -83,6 +83,16 @@ Once `mp-search` returns a top hit, **do not ask the user for permission to read
 
 Phrase status updates as actions ("Reading `git:rebase` and applying it now."), not as offers ("Want me to…?").
 
+## Run the search in a subagent to save context (recommended)
+
+The search digest is small, but the steps that follow it — reading candidate manifests and `mp-load`ing full skill bodies (manifest + every tier chunk + applied patches) — pull a lot of text into whatever context runs them. Split the labor by context cost: the **main agent** keeps the cheap ends, a **subagent** absorbs the expensive middle.
+
+- **Decompose — main agent.** Split a compound task into subtasks (the main thread needs the whole shape to compile later). One subtask is the unit of search.
+- **Find the skill — one subagent per subtask.** Spawn a subagent (Claude Code: the `Agent`/`Task` tool; any harness: its sub-agent / isolated-context primitive), fanned out in parallel for independent subtasks. Each subagent handles its single subtask: rephrase ×3 → run `mp-search` on the three axes → read candidates and triage (convergence vs divergence), falling back through up to 3 → `mp-load` only the one it commits to. It returns **only**: the chosen skill **name + full path**, a **distilled, ready-to-execute** summary of its instructions (concrete steps, not the whole body), one line of **why** (which axes converged) — or, if nothing fits after 3 candidates, that fact plus what was tried. The heavy reading lives and dies in the subagent.
+- **Compile — main agent.** Merge the subagents' distilled results into one plan: order dependencies, reconcile overlapping picks, flag gaps. Load a full body into the main thread only when it must execute steps the subagent couldn't (e.g. edits in the user's working tree).
+
+**Skip the subagent only for a trivial single lookup** — one obvious skill, tiny body, no triage. When in doubt, delegate; the context you save compounds across a long session. This mirrors the same delegate-and-compress idea used elsewhere (e.g. `cavecrew` investigators) but needs no plugin — any harness with a sub-agent primitive works.
+
 ## Example
 
 User asks: "do I have a skill for interactive git rebase?"

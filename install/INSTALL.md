@@ -66,6 +66,8 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
 ## Bootstrap on a fresh machine (or update an existing checkout)
 
+**Install and update are the same flow — run these steps top to bottom either way.** On a fresh machine they install; on a machine that already has melting-pot they update. Every step is idempotent: step 1 pulls the latest source if you're already in the clone, step 3's installer re-seeds and refreshes symlinks/hooks/manifests, and the harness-owned steps (4, 6, 7) re-sync rather than duplicate (register only newly-added skills, refresh hooks if their content changed, **replace** the task-intake block if the snippet changed). So a user updating to a new version just pastes the same prompt again.
+
 1. **Locate the repo — detect an existing clone before asking to clone.** Run this first; it sets `REPO` either to the clone you're already in or to a fresh clone, and only prompts when neither applies (requires GitHub SSH access — `ssh -T git@github.com` should succeed — only when it actually clones):
 
    ```sh
@@ -76,7 +78,13 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
      REPO="$root"
      git -C "$REPO" fetch --quiet 2>/dev/null || true
      if [ -n "$(git -C "$REPO" rev-list HEAD..@{u} 2>/dev/null)" ]; then
-       echo "REPO=$REPO (behind upstream — run: git -C \"$REPO\" pull --ff-only)"
+       # Behind upstream — this is an UPDATE. Pull latest, then re-run the
+       # rest of the steps; they're idempotent and will refresh everything.
+       if git -C "$REPO" pull --ff-only --quiet; then
+         echo "REPO=$REPO (updated to latest — re-applying steps to refresh)"
+       else
+         echo "REPO=$REPO (behind, but pull --ff-only failed — local commits or dirty tree; resolve manually, then re-run)"
+       fi
      else
        echo "REPO=$REPO (up to date — proceeding without prompts)"
      fi
@@ -112,7 +120,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md
    ```
 
-   Register each `SKILL.md` found as a plain **personal** skill, using whatever mechanism your harness expects — you know how. Register them all the same way. The frontmatter names are hyphenated (`mp-search`, `mp-list`, `mp-crud`, `mp-load`, `mp-learn`) on purpose: some harnesses reserve the colon for plugin namespacing (Claude Code is one), so a personal skill named `mp:search` would **not** yield a `/mp:search` command there. The hyphen form registers cleanly as a personal skill on any harness (Claude Code: `/mp-search` works) with no plugin packaging. Do not rewrite the names to colons or wrap them in a plugin. These are the only skills this installer adds; anything else already registered with the harness is left untouched (`mp-search`/`mp-list` discover those via `~/.melt/repos.patterns` when their root is listed). Confirm the registered skills back to the user by name.
+   Register each `SKILL.md` found as a plain **personal** skill, using whatever mechanism your harness expects — you know how. Register them all the same way. The frontmatter names are hyphenated (`mp-search`, `mp-list`, `mp-crud`, `mp-load`, `mp-learn`) on purpose: some harnesses reserve the colon for plugin namespacing (Claude Code is one), so a personal skill named `mp:search` would **not** yield a `/mp:search` command there. The hyphen form registers cleanly as a personal skill on any harness (Claude Code: `/mp-search` works) with no plugin packaging. Do not rewrite the names to colons or wrap them in a plugin. These are the only skills this installer adds; anything else already registered with the harness is left untouched (`mp-search`/`mp-list` discover those via `~/.melt/repos.patterns` when their root is listed). Confirm the registered skills back to the user by name. **On update:** re-registering an already-registered skill is harmless; the point is to pick up any skill a new version added under `$REPO/mp/` (the `find` above lists the current set).
 
 5. **Seed `~/.melt/repos.patterns`.** The installer wrote a sample. Register melting-pot's own `mp/` root so the meta-skills are discoverable, then **ask the user which additional roots to register** (their existing skills dir, per-project skill dirs, etc.). One entry per line, `<abs-root><TAB><pattern>` (default pattern `*`; prefix `re:` for regex):
 
@@ -122,7 +130,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    #   printf '%s\t*\n' "$HOME/Projects/my-skills" >> ~/.melt/repos.patterns
    ```
 
-   Adding a root only indexes the skills there — it does not touch, move, or unregister them. Roots support `~`/`~/…` (portable across machines); avoid machine-specific absolute paths if you want the file to travel.
+   Adding a root only indexes the skills there — it does not touch, move, or unregister them. Roots support `~`/`~/…` (portable across machines); avoid machine-specific absolute paths if you want the file to travel. **On update:** the file already exists with the user's roots — don't clobber it; only append a line if that exact root isn't already present (e.g. `grep -qF "$REPO/mp" ~/.melt/repos.patterns || printf '%s\t*\n' "$REPO/mp" >> ~/.melt/repos.patterns`).
 
 6. **Register the hooks.** Read the emitted manifest and translate each row into your harness's hook config (the installer does NOT do this — Q-003):
 
@@ -133,7 +141,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    - `melt-nudge.sh` → `Stop` event (nudges `mp-learn` before `/clear`).
    - `melt-resume.sh` → `SessionStart:clear` event (stages the prior transcript for `mp-learn harvest --transcript`).
 
-   Claude Code: add each to the matching slot in `~/.claude/settings.json`.
+   Claude Code: add each to the matching slot in `~/.claude/settings.json`. **On update:** if the hooks are already wired to the same `~/.melt/hooks/*.sh` paths, leave the config as-is — step 3 already refreshed the script contents in place, so no harness change is needed unless the event/path changed.
 
 7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It installs a reusable intake loop — decompose the request into subtasks, rephrase each ×3, `mp-search` each, compare — run before any new task and re-entered whenever the agent is stuck:
 
@@ -141,7 +149,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    cat ~/.melt/task-intake.md     # then append its contents to the global rules file
    ```
 
-   Append exactly once (don't duplicate). Verify the block is present before moving on.
+   Append exactly once (don't duplicate). Verify the block is present before moving on. **On update:** the snippet's wording can change between versions, so don't just skip when a `## Task intake` block already exists — **replace** it. Delete the old block (from its `## Task intake` heading down to the next top-level `##` heading or end of file) and append the current `~/.melt/task-intake.md` in its place, so the live rule always matches the installed version.
 
 8. **Build the index + smoke test:**
 
