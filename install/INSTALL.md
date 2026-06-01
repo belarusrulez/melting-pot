@@ -6,7 +6,7 @@
 - **Linux** — should work (POSIX `sh` + standard coreutils); needs `sqlite3` ≥ 3.20 for FTS5. Untested in CI — open an issue if you hit a portability bug.
 - **Windows** — use WSL.
 
-> **Agent?** This is the annotated walkthrough. The one-paste install prompt lives in the [README](../README.md#install) — that's where most users start. To run the bootstrap, do **§ Bootstrap on a fresh machine** below in order with `Bash`; each command stands alone.
+> **Agent?** This is the annotated walkthrough. The one-paste install prompt lives in the [README](../README.md#install--update) — that's where most users start. To run the bootstrap, do **§ Bootstrap on a fresh machine** below in order with `Bash`; each command stands alone.
 >
 > The split to keep in mind: **`install/install.sh` does everything deterministic** (seeds `~/.melt/`, symlinks each skill's `action`, copies hooks, emits the hook manifest + task-intake landing). **You** own only the two harness-specific steps it can't portably script:
 >
@@ -64,7 +64,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
   ...        (other skills already registered with your harness stay as-is)
 ```
 
-## Bootstrap on a fresh machine
+## Bootstrap on a fresh machine (or update an existing checkout)
 
 1. **Locate the repo — detect an existing clone before asking to clone.** Run this first; it sets `REPO` either to the clone you're already in or to a fresh clone, and only prompts when neither applies (requires GitHub SSH access — `ssh -T git@github.com` should succeed — only when it actually clones):
 

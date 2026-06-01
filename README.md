@@ -27,9 +27,9 @@ What makes a skill *evolve*:
 - **Usage-driven movement.** `mp-learn promote`/`demote` move chunks between tiers based on how they actually get used. No rule grammar — you (or the agent) decide, the tool records the history.
 - **Clean overlay at `~/.melt/`.** Your edits live in an overlay separate from the upstream source, which stays read-only.
 
-## Install
+## Install / Update
 
-Paste this into a fresh agent session:
+Paste this into a fresh agent session. The same prompt installs on a new machine **and** updates an existing checkout — step 1 detects a clone you're already in and pulls it up to date instead of re-cloning:
 
 > Bootstrap melting-pot on this machine. First detect an existing clone: if you're already inside a `belarusrulez/melting-pot` checkout (origin matches) that's clean and up to date, use it as `$REPO` and **don't ask me where to clone** — only when you're not already in such a clone, ask me where to clone `git@github.com:belarusrulez/melting-pot.git` (suggest the directory where you started as the default). Then follow `install/INSTALL.md` → **Bootstrap on a fresh machine**, in order (its step 1 has the exact detect-or-clone snippet). `install/install.sh` does the deterministic filesystem work (seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action`, copies the hooks, emits the hook manifest + task-intake landing). Two steps are yours because they're harness-specific: **(a)** register every shipped skill — discover them with `find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md` and register each one as a plain personal skill the way your harness expects. Their frontmatter `name:` is hyphenated (`mp-search`, `mp-list`, …) so they register as ordinary personal skills (Claude Code: a hyphen name yields `/mp-search`) — do **not** package them as a plugin or rewrite the names to `mp:search`; **(b)** register the two hooks listed in `~/.melt/REGISTER-HOOKS.md` and append `~/.melt/task-intake.md` to your global rules file. Then build the index and smoke-test (`sh ~/.melt/search/action reindex` ; `sh ~/.melt/list/action --count`). After registering the skills, tell me which ones registered (by their frontmatter `name:`). Don't commit anything.
 
