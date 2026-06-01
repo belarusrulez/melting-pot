@@ -135,7 +135,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
    Claude Code: add each to the matching slot in `~/.claude/settings.json`.
 
-7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It forces a 3-rephrasing + `mp-search` pass before any new task:
+7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It installs a reusable intake loop — decompose the request into subtasks, rephrase each ×3, `mp-search` each, compare — run before any new task and re-entered whenever the agent is stuck:
 
    ```sh
    cat ~/.melt/task-intake.md     # then append its contents to the global rules file

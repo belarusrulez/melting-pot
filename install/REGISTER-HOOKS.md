@@ -41,9 +41,10 @@ confirming the script's stdout reaches the agent.
 ## Task-intake rule
 
 The installer also drops `~/.melt/task-intake.md` — a markdown snippet that
-forces a 3-rephrasing + `mp-search` step before any new task. The
-calling LLM should append the contents of that file to the harness's
-global rules file:
+installs a reusable intake loop (decompose into subtasks → rephrase each
+×3 → `mp-search` each → compare), run before any new task and re-entered
+whenever the agent is stuck. The calling LLM should append the contents of
+that file to the harness's global rules file:
 
 - **Claude Code:** append to `~/.claude/CLAUDE.md` (or the user's
   `CLAUDE.md` of choice).
