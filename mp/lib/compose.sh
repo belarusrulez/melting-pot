@@ -1,7 +1,7 @@
 # melting-pot compose helpers — POSIX sh.
 #
 # Composes a fully-rendered skill (manifest + all chunks across all tiers +
-# applied patches) as one document for `mp:load`'s use. Markdown is default;
+# applied patches) as one document for `mp-load`'s use. Markdown is default;
 # JSON for programmatic consumers.
 #
 # Sourced after discover.sh + tier.sh + patch.sh.

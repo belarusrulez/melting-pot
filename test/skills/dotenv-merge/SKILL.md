@@ -3,7 +3,7 @@ name: dotenv:merge
 description: Use WHEN you have multiple .env files (.env.shared, .env.local, .env.secret) and need to compose them in priority order, with last-wins semantics and conflict detection.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Most projects accumulate `.env` files: `.env.example` (committed template), `.env.shared` (committed defaults), `.env.local` (per-developer overrides, gitignored), `.env.secret` (CI-injected). This skill merges them by precedence, warns on conflicts, and emits the unified set in any of the popular formats.
 

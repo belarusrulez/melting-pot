@@ -3,7 +3,7 @@ name: aws:lambda-deploy
 description: Use WHEN you need to deploy or update an AWS Lambda function — upload code, set env vars from .env, configure layers, and route traffic via aliases without downtime.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Lambda deploys feel simple ("just zip and upload") right until the env-var ordering subtly changes between code and config, or an alias points to the wrong version after a half-applied update. This skill drives the canonical sequence: publish a new version, update its env+layer+memory atomically, shift traffic via alias, and verify.
 

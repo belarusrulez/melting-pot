@@ -1,5 +1,5 @@
 #!/bin/sh
-# mp:list — flat inventory of every skill the pot can see.
+# mp-list — flat inventory of every skill the pot can see.
 #
 # Walks the union of registered (~/.melt/repos.patterns) + overlay (~/.melt/<skill>/).
 # One row per skill. Columns: name, dirname, origin, tiers_present, chunk_count,

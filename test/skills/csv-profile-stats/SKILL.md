@@ -3,7 +3,7 @@ name: csv:profile-stats
 description: Use WHEN you've been handed a CSV and need a quick column-by-column profile — null rate, distinct count, top values, min/max for numeric columns — without writing a pandas describe().
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill is the `describe() + value_counts()` combo for CSVs. It scans once and prints, per column: detected type (string/int/float/date/bool), null count and percentage, distinct count, top-10 values with frequencies, and for numeric columns the min/mean/median/max/std. Output is a clean terminal table or JSON for piping.
 

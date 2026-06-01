@@ -78,7 +78,7 @@ fi
 
 cat <<NUDGE
 Session has accumulated $count tool calls. Before /clear, consider running
-mp:learn to harvest any reusable techniques into new or updated skills.
+mp-learn to harvest any reusable techniques into new or updated skills.
 Skip if nothing felt reusable.
 NUDGE
 

@@ -3,7 +3,7 @@ name: flake:rerun
 description: Use WHEN a test is intermittently failing in CI — quarantine and re-run it N times locally to confirm flakiness, then file a tracking issue rather than disabling silently.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Flaky tests are a tax on velocity that compounds: people retry the build, learn to ignore reds, then miss a real regression. This skill runs a suspect test under controlled re-runs to quantify the flake rate, captures the failing seed/state, and produces a markdown report suitable for a tracking issue.
 

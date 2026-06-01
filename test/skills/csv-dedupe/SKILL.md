@@ -3,7 +3,7 @@ name: csv:dedupe
 description: Use WHEN you have a single CSV file containing duplicate rows and want to collapse them — exact-match, key-column-match, or fuzzy-match — with a report of what was removed.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill removes duplicate rows from one CSV file (use `csv:merge` if you have multiple files to outer-join). It supports three modes: exact (entire-row hash), keyed (dedupe on one or more columns, keep first/last/all-but-one), and fuzzy (normalize whitespace, case, punctuation before comparing — useful for messy human-entered email lists).
 

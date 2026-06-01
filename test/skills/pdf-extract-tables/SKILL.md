@@ -3,7 +3,7 @@ name: pdf:extract-tables
 description: Use WHEN you have a PDF report and need to pull tabular data out of it into CSV or pandas — handling multi-page tables, merged header cells, and bank-statement-style layouts.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill turns table-bearing PDFs into structured rows. The two engines worth knowing are `tabula-java` (lattice mode for ruled tables, stream mode for whitespace-aligned ones) and `camelot-py` (similar dual mode, plus a flavor that uses pdfplumber as the renderer). Choose lattice when the table has visible borders; stream when it doesn't.
 

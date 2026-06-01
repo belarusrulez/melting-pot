@@ -17,17 +17,17 @@
 
 This repo ships its meta-skills under `mp/`. Each subdirectory of `mp/` that contains a `SKILL.md` is a skill — the installer symlinks its `action` and you register the `SKILL.md`. Currently shipped:
 
-- **`mp:search`** — multi-axis skill search across registered repos (the ranked view).
-- **`mp:list`** — flat inventory of every registered skill (the catalog view).
-- **`mp:crud`** — skill lifecycle (scaffold, validate, trash/restore, patch-add/list/remove/validate).
-- **`mp:load`** — compose a skill's full content (manifest + tier chunks + applied patches) as markdown or JSON.
-- **`mp:learn`** — usage-driven tier movement (promote/demote/cascade), duplicate refactor proposals, harvest, and failed-patch triage.
+- **`mp-search`** — multi-axis skill search across registered repos (the ranked view).
+- **`mp-list`** — flat inventory of every registered skill (the catalog view).
+- **`mp-crud`** — skill lifecycle (scaffold, validate, trash/restore, patch-add/list/remove/validate).
+- **`mp-load`** — compose a skill's full content (manifest + tier chunks + applied patches) as markdown or JSON.
+- **`mp-learn`** — usage-driven tier movement (promote/demote/cascade), duplicate refactor proposals, harvest, and failed-patch triage.
 
 If a new skill is later added under `mp/`, re-running `install.sh` re-creates the symlinks and you re-run step 4 to register it.
 
 ## Design in one paragraph
 
-melting-pot puts a **tiered overlay** on top of plain skill search: every skill can carry `N-melting-pot/` tier dirs (0–5) and a `patches/` stack, and the search index folds chunk + patch content into one FTS5 row. Runtime state lives under `~/.melt/` (config, overlays, index, learn state); discovery reads **only** `~/.melt/repos.patterns`, with no other runtime config path (Q-008). Harness-registration of the meta-skills is the only agent-side step; once `~/.melt/repos.patterns` points at a root, `mp:search`/`mp:list` find everything under it by full path. `install.sh` keeps the deterministic work in one auditable script and never touches harness config (Q-003).
+melting-pot puts a **tiered overlay** on top of plain skill search: every skill can carry `N-melting-pot/` tier dirs (0–5) and a `patches/` stack, and the search index folds chunk + patch content into one FTS5 row. Runtime state lives under `~/.melt/` (config, overlays, index, learn state); discovery reads **only** `~/.melt/repos.patterns`, with no other runtime config path (Q-008). Harness-registration of the meta-skills is the only agent-side step; once `~/.melt/repos.patterns` points at a root, `mp-search`/`mp-list` find everything under it by full path. `install.sh` keeps the deterministic work in one auditable script and never touches harness config (Q-003).
 
 ## Layout
 
@@ -36,14 +36,14 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 ├── INSTALL.md                       ← this file
 ├── mp/
 │   ├── lib/                         ← shared shell helpers (discover/tier/patch/compose)
-│   ├── search/{SKILL.md,action}     ← mp:search
-│   ├── list/{SKILL.md,action}       ← mp:list
-│   ├── crud/{SKILL.md,action}       ← mp:crud
-│   ├── load/{SKILL.md,action}       ← mp:load
-│   └── learn/{SKILL.md,action}      ← mp:learn
+│   ├── search/{SKILL.md,action}     ← mp-search
+│   ├── list/{SKILL.md,action}       ← mp-list
+│   ├── crud/{SKILL.md,action}       ← mp-crud
+│   ├── load/{SKILL.md,action}       ← mp-load
+│   └── learn/{SKILL.md,action}      ← mp-learn
 ├── install/
 │   ├── install.sh                   ← deterministic bootstrap (seed + symlink + hooks + manifest)
-│   ├── task-intake.md               ← global-rule snippet (mp:search-first)
+│   ├── task-intake.md               ← global-rule snippet (mp-search-first)
 │   ├── REGISTER-HOOKS.md            ← hook manifest (human-readable placeholder)
 │   └── hooks/{melt-nudge.sh,melt-resume.sh}
 └── test/run-tests.sh                ← test harness (98 tests)
@@ -59,21 +59,36 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 └── trash/                           ← soft-deleted skills
 
 <your harness's skill-registration mechanism>:   ← you register every SKILL.md under mp/
-  mp:search  →  /<repo>/melting-pot/mp/search/SKILL.md
-  mp:list    →  /<repo>/melting-pot/mp/list/SKILL.md
+  mp-search  →  /<repo>/melting-pot/mp/search/SKILL.md
+  mp-list    →  /<repo>/melting-pot/mp/list/SKILL.md
   ...        (other skills already registered with your harness stay as-is)
 ```
 
 ## Bootstrap on a fresh machine
 
-1. **Clone this repo** (requires GitHub SSH access — `ssh -T git@github.com` should succeed).
-
-   Ask the user which parent directory to clone into (suggest the directory where the LLM started as the default). Then, from that chosen directory:
+1. **Locate the repo — detect an existing clone before asking to clone.** Run this first; it sets `REPO` either to the clone you're already in or to a fresh clone, and only prompts when neither applies (requires GitHub SSH access — `ssh -T git@github.com` should succeed — only when it actually clones):
 
    ```sh
-   git clone git@github.com:belarusrulez/melting-pot.git
-   REPO="$(pwd)/melting-pot"
+   if root=$(git rev-parse --show-toplevel 2>/dev/null) \
+      && url=$(git -C "$root" remote get-url origin 2>/dev/null) \
+      && printf '%s' "$url" | grep -Eq '[:/]belarusrulez/melting-pot(\.git)?$'; then
+     # Already inside the correct clone — reuse it, don't ask where to clone.
+     REPO="$root"
+     git -C "$REPO" fetch --quiet 2>/dev/null || true
+     if [ -n "$(git -C "$REPO" rev-list HEAD..@{u} 2>/dev/null)" ]; then
+       echo "REPO=$REPO (behind upstream — run: git -C \"$REPO\" pull --ff-only)"
+     else
+       echo "REPO=$REPO (up to date — proceeding without prompts)"
+     fi
+   else
+     # Not inside the repo — THEN ask the user which parent dir to clone into
+     # (suggest the dir where the LLM started as the default), and from there:
+     git clone git@github.com:belarusrulez/melting-pot.git
+     REPO="$(pwd)/melting-pot"
+   fi
    ```
+
+   When the detection branch fires (already in a clean, up-to-date `belarusrulez/melting-pot` checkout), **do not ask where to clone** — that question only applies to the `else` branch.
 
 2. **Verify dependencies** (all preinstalled on macOS 14+):
 
@@ -97,7 +112,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md
    ```
 
-   Register each `SKILL.md` found, using whatever mechanism your harness expects — you know how. Register them all the same way. These are the only skills this installer adds; anything else already registered with the harness is left untouched (`mp:search`/`mp:list` discover those via `~/.melt/repos.patterns` when their root is listed). Confirm the registered skills back to the user by name.
+   Register each `SKILL.md` found as a plain **personal** skill, using whatever mechanism your harness expects — you know how. Register them all the same way. The frontmatter names are hyphenated (`mp-search`, `mp-list`, `mp-crud`, `mp-load`, `mp-learn`) on purpose: some harnesses reserve the colon for plugin namespacing (Claude Code is one), so a personal skill named `mp:search` would **not** yield a `/mp:search` command there. The hyphen form registers cleanly as a personal skill on any harness (Claude Code: `/mp-search` works) with no plugin packaging. Do not rewrite the names to colons or wrap them in a plugin. These are the only skills this installer adds; anything else already registered with the harness is left untouched (`mp-search`/`mp-list` discover those via `~/.melt/repos.patterns` when their root is listed). Confirm the registered skills back to the user by name.
 
 5. **Seed `~/.melt/repos.patterns`.** The installer wrote a sample. Register melting-pot's own `mp/` root so the meta-skills are discoverable, then **ask the user which additional roots to register** (their existing skills dir, per-project skill dirs, etc.). One entry per line, `<abs-root><TAB><pattern>` (default pattern `*`; prefix `re:` for regex):
 
@@ -115,12 +130,12 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    cat ~/.melt/REGISTER-HOOKS.md
    ```
 
-   - `melt-nudge.sh` → `Stop` event (nudges `mp:learn` before `/clear`).
-   - `melt-resume.sh` → `SessionStart:clear` event (stages the prior transcript for `mp:learn harvest --transcript`).
+   - `melt-nudge.sh` → `Stop` event (nudges `mp-learn` before `/clear`).
+   - `melt-resume.sh` → `SessionStart:clear` event (stages the prior transcript for `mp-learn harvest --transcript`).
 
    Claude Code: add each to the matching slot in `~/.claude/settings.json`.
 
-7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It forces a 3-rephrasing + `mp:search` pass before any new task:
+7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It forces a 3-rephrasing + `mp-search` pass before any new task:
 
    ```sh
    cat ~/.melt/task-intake.md     # then append its contents to the global rules file
@@ -137,11 +152,11 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    sh ~/.melt/crud/action validate "$REPO/mp/list"
    ```
 
-   The first search should show the bundled meta-skills (`mp:search`, `mp:list`, …) near the top of the Convergence section. `--count` should print the total skill count discovered across `~/.melt/repos.patterns`. `validate` should print `OK: …/mp/list`. If anything looks wrong, recheck `~/.melt/repos.patterns` and run `sh ~/.melt/search/action doctor`.
+   The first search should show the bundled meta-skills (`mp-search`, `mp-list`, …) near the top of the Convergence section. `--count` should print the total skill count discovered across `~/.melt/repos.patterns`. `validate` should print `OK: …/mp/list`. If anything looks wrong, recheck `~/.melt/repos.patterns` and run `sh ~/.melt/search/action doctor`.
 
 ## Day-to-day usage
 
-When the user asks "do I have a skill for X", "find a skill that…", **invoke `mp:search`** — always three queries (literal, synonym, intent):
+When the user asks "do I have a skill for X", "find a skill that…", **invoke `mp-search`** — always three queries (literal, synonym, intent):
 
 ```sh
 sh ~/.melt/search/action "<literal phrase>" "<synonym/jargon>" "<intent/goal>"
@@ -161,19 +176,19 @@ sh ~/.melt/learn/action promote <chunk>         # tier movement (see its SKILL.m
 
 ## What this installer does NOT touch
 
-- Other skills already registered with your harness. They keep working. To let `mp:search` find them too, add their directory to `~/.melt/repos.patterns`.
+- Other skills already registered with your harness. They keep working. To let `mp-search` find them too, add their directory to `~/.melt/repos.patterns`.
 - Source repos listed in `~/.melt/repos.patterns`. Only their index is rebuilt; the files themselves are read-only to melting-pot.
 - Harness config (`~/.claude/settings.json` etc.). The installer asserts the Q-003 invariant at exit and aborts if breached.
 
 ## Note on slash-commands
 
-`/<skill-name>` only works for skills the harness itself has registered (including every skill you add from `$REPO/mp/` in step 4). Skills discovered via `mp:search`/`mp:list` are read by full path and followed by the agent — there is no slash-command for them.
+`/<skill-name>` only works for skills the harness itself has registered (including every skill you add from `$REPO/mp/` in step 4). Skills discovered via `mp-search`/`mp-list` are read by full path and followed by the agent — there is no slash-command for them.
 
 ## Uninstall
 
 1. Unregister every skill added from `$REPO/mp/` (reverse step 4 — discover the same way: `find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md`).
 2. Unregister the two hooks from your harness config.
-3. Remove the task-intake block from the global rules file.
+3. Remove the `## Task intake` block from the global rules file — resolve the path first if it's a symlink, and edit the real target. That block is the only thing the bootstrap writes there; leave the rest of the file intact.
 4. Remove the runtime tree:
 
    ```sh

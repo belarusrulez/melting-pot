@@ -1,13 +1,13 @@
 ---
-name: mp:learn
+name: mp-learn
 description: Lifecycle automation for melting-pot chunks and patches. Use when the user says "harvest reusable techniques", "what should I save from this session", "promote this chunk", "demote that chunk", "refactor overlapping chunks", "triage failed patches", or after a Stop-event nudge / SessionStart:clear hook fires. Owns the promote / demote / refactor / cascade / harvest / patch-triage subcommands. Tier movement is driven purely by usage quality: a good use promotes (+1 tier), a bad use demotes (-1 tier), and a bad use at tier 0 removes the chunk — no time-decay, no promote_when/demote_when rules. New chunks always land at tier 0 (born-at-0 invariant). Patch-triage sweeps every ~/.melt/<skill>/patches/.failed/ marker and emits per-marker triage proposals (regenerate / hand-rewrite / delete / defer) for the LLM to resolve case-by-case.
 user_invocable: true
 disable-model-invocation: true
 ---
 
-# mp:learn — lifecycle automation
+# mp-learn — lifecycle automation
 
-`mp:learn` adjusts the gradient based on **usage quality**. There are no rules and no time-decay: the caller reports whether a use was good or bad, and the chunk moves one tier accordingly.
+`mp-learn` adjusts the gradient based on **usage quality**. There are no rules and no time-decay: the caller reports whether a use was good or bad, and the chunk moves one tier accordingly.
 
 ```sh
 sh ~/.melt/learn/action help
@@ -30,11 +30,11 @@ There are no `promote_when` / `demote_when` rules, no `use_count`/`days`-based t
 
 ## Triggers
 
-Three ways `mp:learn` fires:
+Three ways `mp-learn` fires:
 
-1. **Automatic on session-end** — the Stop nudge hook (`melt-nudge.sh`) suggests `mp:learn harvest` before `/clear`. Agent reads live context and pipes proposals to `mp:learn harvest` on stdin.
-2. **SessionStart:clear** — `melt-resume.sh` writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. Next `mp:learn harvest` consumes it (read-then-unlink) in transcript mode.
-3. **Explicit gesture** — user invokes `mp:learn promote <chunk>` / `demote` / `refactor` / `patch-triage` during a session.
+1. **Automatic on session-end** — the Stop nudge hook (`melt-nudge.sh`) suggests `mp-learn harvest` before `/clear`. Agent reads live context and pipes proposals to `mp-learn harvest` on stdin.
+2. **SessionStart:clear** — `melt-resume.sh` writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. Next `mp-learn harvest` consumes it (read-then-unlink) in transcript mode.
+3. **Explicit gesture** — user invokes `mp-learn promote <chunk>` / `demote` / `refactor` / `patch-triage` during a session.
 
 ## Chunk frontmatter schema (v1)
 
@@ -86,7 +86,7 @@ echo '{"proposals":[
 Without `--apply`, the action validates the JSON and prints a per-proposal summary; the agent decides which to enact.
 With `--apply`, the action executes `create` (write a new tier-0 chunk), `promote`, and `demote` actions. `update` is reported but not auto-applied (diffs need human review).
 
-**Transcript mode.** After `/clear`, the SessionStart hook writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. The next `mp:learn harvest` reads + unlinks that file and prints the transcript path. The agent then reads the `.jsonl` itself and pipes structured proposals back in (loop = transcript mode + live-context mode chained).
+**Transcript mode.** After `/clear`, the SessionStart hook writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. The next `mp-learn harvest` reads + unlinks that file and prints the transcript path. The agent then reads the `.jsonl` itself and pipes structured proposals back in (loop = transcript mode + live-context mode chained).
 
 Alternatively pass `--transcript <path>` explicitly.
 
@@ -108,7 +108,7 @@ After a demote (move or tier-0 removal), `cascade` runs to flag any dependents (
 
 ### `refactor [--yes]`
 
-Identifies overlapping chunks (v1: normalized-title match across the entire pot). Prints proposals. v1 does NOT auto-consolidate — even with `--yes` the user is expected to merge by hand or via `mp:crud`.
+Identifies overlapping chunks (v1: normalized-title match across the entire pot). Prints proposals. v1 does NOT auto-consolidate — even with `--yes` the user is expected to merge by hand or via `mp-crud`.
 
 ### `cascade <chunk>`
 
@@ -131,9 +131,9 @@ Default output is markdown; `--format json` for programmatic consumers. Exit 0 i
 
 - **Born at tier 0.** Every `harvest` create lands at `0-melting-pot/` regardless of how confident the agent is. Trust is earned.
 - **Movement is usage-driven.** Good use promotes, bad use demotes, bad use at tier 0 removes. No rules, no time-decay.
-- **Patches never touch upstream.** `mp:learn` only edits overlay state.
+- **Patches never touch upstream.** `mp-learn` only edits overlay state.
 - **Status history is append-only.** Every promote/demote writes a new entry; no entries are ever removed.
-- **Policy lives here, not in the apply pipeline.** Failed-patch markers are recorded by the indexer (`patch.sh`) and triaged by `mp:learn patch-triage` — never by the indexer itself.
+- **Policy lives here, not in the apply pipeline.** Failed-patch markers are recorded by the indexer (`patch.sh`) and triaged by `mp-learn patch-triage` — never by the indexer itself.
 
 ## Path / config files (reference)
 
@@ -153,9 +153,9 @@ Default output is markdown; `--format json` for programmatic consumers. Exit 0 i
 
 ## Related
 
-- `mp:crud patch-add`, `patch-remove` — write patches; `patch-triage` proposes the remove call.
-- `mp:search` — runs the FTS5 index over patched+overlay content.
-- `mp:load` — reads chunks and patches; respects the same tier structure mp:learn moves them through.
+- `mp-crud patch-add`, `patch-remove` — write patches; `patch-triage` proposes the remove call.
+- `mp-search` — runs the FTS5 index over patched+overlay content.
+- `mp-load` — reads chunks and patches; respects the same tier structure mp-learn moves them through.
 - `~/.melt/lib/tier.sh:mp_append_status_history` — the helper this skill calls on every move.
-- `install/hooks/melt-nudge.sh`, `melt-resume.sh` — harness-agnostic hooks that trigger `mp:learn harvest`.
+- `install/hooks/melt-nudge.sh`, `melt-resume.sh` — harness-agnostic hooks that trigger `mp-learn harvest`.
 - `plans/open_questions.md` — Q-002 (cascade), Q-006 (harvest provenance) baked-in as v1 defaults here. Q-005 (promote grammar) resolved: usage-driven good/bad, no rule schema.

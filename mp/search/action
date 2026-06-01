@@ -1,5 +1,5 @@
 #!/bin/sh
-# mp:search — three-axis skill search via SQLite FTS5 + Reciprocal Rank Fusion.
+# mp-search — three-axis skill search via SQLite FTS5 + Reciprocal Rank Fusion.
 #
 # melting-pot's two-layer storage,
 # N-melting-pot/ tier dirs, in-memory git-patch apply, and per-skill metadata

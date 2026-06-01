@@ -3,7 +3,7 @@ name: gcp:cloud-run
 description: Use WHEN you need to deploy a container image to Google Cloud Run and inject environment variables sourced from a local .env file.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill ships a containerized service to Cloud Run with config wired up from a `.env` file. Cloud Run's `--set-env-vars` flag takes a comma-separated list, which breaks if any value contains a comma — so for anything beyond toy configs we translate `.env` into the YAML form that `--env-vars-file` accepts. That avoids quoting hell and keeps secrets out of shell history.
 

@@ -3,7 +3,7 @@ name: helm:template-render
 description: Use WHEN you need to see what manifests a Helm chart will actually produce before installing — render with values, validate against the API, and diff against the live release.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Helm charts are templates over YAML, which means a typo in `values.yaml` can silently produce a manifest that mounts the wrong secret or sets the wrong namespace. Render-and-review is the seatbelt: `helm template` to see the final YAML, then diff against the live release before `helm upgrade`.
 

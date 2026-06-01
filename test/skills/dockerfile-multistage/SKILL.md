@@ -3,7 +3,7 @@ name: dockerfile:multistage
 description: Use WHEN you need to write or refactor a Dockerfile so the final image is small — multi-stage builds that drop compilers, test deps, and intermediate artifacts.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 A single-stage Dockerfile that runs `apt-get install build-essential`, compiles code, and ends up with a 2 GB image with `gcc` baked in is the most common reason "our Docker images are huge". The fix is multi-stage: a heavy builder stage, then a minimal runtime stage that `COPY --from=builder` only the artifacts it actually needs.
 

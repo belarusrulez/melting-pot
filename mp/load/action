@@ -1,10 +1,10 @@
 #!/bin/sh
-# mp:load — compose and emit a skill's full content (manifest + every chunk
+# mp-load — compose and emit a skill's full content (manifest + every chunk
 # across every tier + applied patches) as one unified document. Thin CLI over
 # mp_compose_skill() in mp/lib/compose.sh.
 #
 # Usage:
-#   mp:load <skill-name> [--format md|json] [--tiers 5,3,0]
+#   mp-load <skill-name> [--format md|json] [--tiers 5,3,0]
 #                         [--no-patches] [--with-history]
 #
 # Resolution: <skill-name> matches either the skill's frontmatter `name:` value

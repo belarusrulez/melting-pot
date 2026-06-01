@@ -3,7 +3,7 @@ name: sql:explain
 description: Use WHEN a SQL query is slow and you need to visualize its EXPLAIN plan as a readable tree, surface missing-index hints, or share the plan as a Mermaid diagram in a PR review.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill ingests the output of `EXPLAIN`, `EXPLAIN ANALYZE`, or `EXPLAIN (FORMAT JSON)` from Postgres, MySQL, or SQLite, and renders the operator tree as either ASCII art (for terminal sharing) or Mermaid (for pasting into a Markdown doc or GitHub issue). Each node is annotated with estimated rows, actual rows, cost, and timing — and rows where the estimate is off by more than 10x are highlighted as planner-stat-staleness suspects.
 

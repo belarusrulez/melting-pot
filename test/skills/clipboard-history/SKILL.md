@@ -3,7 +3,7 @@ name: clipboard:history
 description: Use WHEN you want a searchable history of everything you've copied recently — so you can paste something from two hours ago without recomputing it.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 The OS clipboard is one slot deep, which is fine until you copy something new and realize you needed the previous value. This skill is the wrapper around the platform-specific history daemons: `cliphist` on Wayland, `clipmenu` on X11, `Maccy`/`Alfred` on macOS, `clip.exe`-based stacks on WSL.
 

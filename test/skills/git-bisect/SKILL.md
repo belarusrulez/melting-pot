@@ -3,7 +3,7 @@ name: git:bisect
 description: Use WHEN a regression appeared somewhere in recent history and you need to binary-search commits to identify the first bad one.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill drives `git bisect` end-to-end: marking a known-good and known-bad commit, then letting git checkout midpoints while you (or a script) classify each one. The result is the exact SHA that introduced the regression, no manual log-scrolling required.
 

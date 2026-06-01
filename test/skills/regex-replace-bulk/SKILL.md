@@ -3,7 +3,7 @@ name: regex:replace-bulk
 description: Use WHEN you need to do a repo-wide find-and-replace driven by a regex — with a dry-run preview, per-file diffs, and a backout file in case the pattern was wrong.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill is the safer wrapper around `sed -i` / `ripgrep --replace` for cross-repo regex substitution. The default is dry-run: it shows every file that would change with a unified diff, and only applies when you explicitly confirm.
 

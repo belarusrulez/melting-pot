@@ -3,7 +3,7 @@ name: k8s:port-forward
 description: Use WHEN you need to reach a service inside a kubernetes cluster from your laptop — port-forward to a Pod, Service, or Deployment, with auto-restart on disconnect.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 `kubectl port-forward` is the quick path to talking to an in-cluster service without exposing it via Ingress. The connection drops on every API server hiccup, every laptop sleep, every network blip — so wrap it in a restart loop for anything other than a 30-second probe.
 

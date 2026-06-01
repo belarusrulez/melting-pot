@@ -3,7 +3,7 @@ name: git:submodule-sync
 description: Use WHEN a repo uses git submodules and you need to update, initialize, or reconcile them after a pull, a branch switch, or an upstream URL change.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Submodules pin a parent repo to an exact commit of a child repo. Most "my submodule looks broken" issues come from skipping `git submodule update` after a checkout — the parent's recorded SHA and the working-tree SHA drift, leading to that infamous "modified content" diff that has no diff.
 

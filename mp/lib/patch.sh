@@ -3,7 +3,7 @@
 # Q-001 invariant: the apply pipeline is **policy-free**. On failure it records
 # a marker under ~/.melt/<skill>/patches/.failed/ and CONTINUES attempting the
 # rest of the patches. It never auto-skips a patch the user wrote and it never
-# auto-stops the stack. Resolution lives in `mp:learn patch-triage`.
+# auto-stops the stack. Resolution lives in `mp-learn patch-triage`.
 #
 # Q-011 v1 default on-disk marker schema: one file per failed patch named
 # `<patch-id>.patch.failed`, containing four delimited sections:
@@ -117,7 +117,7 @@ mp_record_failed_patch() {
 
 # ----- clear_failed_marker <skill-basename> <patch-id> -----
 # Removes the .failed marker for a single patch-id if present. Used by
-# mp:crud patch-remove and mp:learn patch-triage (delete outcome).
+# mp-crud patch-remove and mp-learn patch-triage (delete outcome).
 mp_clear_failed_marker() {
   skill="$1"; pid="$2"
   marker=$(mp_failed_dir "$skill")/"${pid}.failed"
@@ -249,7 +249,7 @@ mp_apply_in_memory() {
 #   failed               .failed marker present for this patch-id
 #   not-yet-attempted    no marker, but we did not attempt (cheap mode)
 #
-# This is the cheap read-only helper used by mp:crud patch-list. It does NOT
+# This is the cheap read-only helper used by mp-crud patch-list. It does NOT
 # write `.failed/` markers; if you want a fresh status that actually runs
 # git apply --check, call apply_in_memory --dry-run yourself and inspect
 # MP_PATCH_APPLIED / MP_PATCH_FAILED.

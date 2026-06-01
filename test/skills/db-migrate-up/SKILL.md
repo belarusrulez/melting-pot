@@ -3,7 +3,7 @@ name: db:migrate-up
 description: Use WHEN you need to apply a forward database migration safely — Alembic, Flyway, Goose, or knex — with a pre-check, transaction wrapping, and a verify step.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Schema migrations are the place teams ship outages. The fix is not "don't migrate", it's "migrate carefully": dry-run the SQL, apply inside a transaction where possible, verify post-state, and have a rollback path. This skill drives those steps for the four common migrator families.
 

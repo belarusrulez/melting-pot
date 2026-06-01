@@ -3,7 +3,7 @@ name: lint:pylint
 description: Run pylint with project-aware defaults and group findings by severity tier when the user wants to lint Python before commit or in CI.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Wraps `pylint` with a curated baseline: enables the `useless-suppression` check, disables overly noisy stylistic rules (`missing-docstring`, `too-few-public-methods`), and respects any project `.pylintrc` or `[tool.pylint]` block in `pyproject.toml` on top of those defaults. Output is regrouped into Fatal, Error, Warning, Refactor, and Convention buckets with counts per file, making it obvious which violations actually block merge.
 

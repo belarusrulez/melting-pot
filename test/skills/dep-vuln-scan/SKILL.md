@@ -3,7 +3,7 @@ name: dep:vuln-scan
 description: Use WHEN you need to audit a project's third-party dependencies for known CVEs across npm, pip, Go, and Cargo, with a unified severity report suitable for PR review.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill runs language-native vulnerability scanners against the lockfiles in the working tree and produces a single deduplicated report. Underlying tools: `npm audit --json` and `pnpm audit` for Node, `pip-audit` for Python, `govulncheck` for Go (call-graph aware, much lower false-positive rate than DB-only scanners), and `cargo audit` for Rust. The skill normalizes the output so severity tiers and advisory IDs are comparable across ecosystems.
 

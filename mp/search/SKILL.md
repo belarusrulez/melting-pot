@@ -1,10 +1,10 @@
 ---
-name: mp:search
+name: mp-search
 description: Three-axis search across every skill in the melting pot — both registered upstream skills AND your overlay (~/.melt/<skill>/) content, with your git-patches applied in-memory at index time. Use when the user asks "do I have a skill for X", "find a skill that …", "is there a skill to …", "search the pot", or any "find/locate a skill" phrasing. Pass THREE positional queries (literal phrase, synonym/jargon, intent/goal); results are fused via Reciprocal Rank Fusion (RRF, k=10) and skills matching 2+ axes surface in a "Convergence" section — the strongest signal.
 user_invocable: true
 ---
 
-# mp:search — multi-axis skill search
+# mp-search — multi-axis skill search
 
 Skill sources are discovered from two places:
 
@@ -15,7 +15,7 @@ The action discovers every skill (union of layers), maintains a SQLite FTS5 inde
 
 ## CRITICAL — pass THREE queries
 
-When invoking `mp:search`, **always pass three positional query strings**, each capturing a different axis of what the user is asking for:
+When invoking `mp-search`, **always pass three positional query strings**, each capturing a different axis of what the user is asking for:
 
 1. **literal** — words/phrases the user actually used (or might have used)
 2. **synonym / jargon** — domain-specific terms for the same concept
@@ -59,24 +59,24 @@ Per-skill metadata surfaced on every hit:
 - **origin**: `reg` (only registered upstream contributes), `ovl` (only overlay contributes — overlay-born skill), or `mix` (both layers contribute — overlay holds patches and/or overlay-authored chunks alongside upstream content).
 - **avg_tier**: weighted-average tier across all chunks (1 decimal). `5.0` = all content is tier-5 canonical; `2.0` = mostly mid-tier.
 - **hits**: chunk distribution as `[tier:count, …]`. E.g., `[5:2, 3:1, 0:1]` = two tier-5 chunks, one tier-3, one tier-0.
-- **patches=N applied [failed=M]**: shown only when patches exist. Failed patches were recorded as `~/.melt/<skill>/patches/.failed/<patch-id>.failed` markers — resolve via `mp:learn patch-triage`.
+- **patches=N applied [failed=M]**: shown only when patches exist. Failed patches were recorded as `~/.melt/<skill>/patches/.failed/<patch-id>.failed` markers — resolve via `mp-learn patch-triage`.
 
 ## How skills are used (CRITICAL)
 
-**Skills are NOT registered with the agent harness** — `mp:search` returns a *path*, you read the `SKILL.md` (or `meta.md`) at that path.
+**Skills are NOT registered with the agent harness** — `mp-search` returns a *path*, you read the `SKILL.md` (or `meta.md`) at that path.
 
 The workflow:
 
-1. Run `mp:search` with 3 queries.
+1. Run `mp-search` with 3 queries.
 2. Pick the top hit from Convergence (or the top Single-axis if Convergence is empty).
-3. **Read the manifest at the full path shown after `→`** (`<path>/meta.md` if it exists, otherwise `<path>/SKILL.md`) and **immediately start following its instructions**. If you need the full skill content with all chunks and patches applied, use `mp:load <skill-name>` — that composes manifest + every chunk across every tier + applied patches into one document.
+3. **Read the manifest at the full path shown after `→`** (`<path>/meta.md` if it exists, otherwise `<path>/SKILL.md`) and **immediately start following its instructions**. If you need the full skill content with all chunks and patches applied, use `mp-load <skill-name>` — that composes manifest + every chunk across every tier + applied patches into one document.
 4. If, after reading, that skill is clearly not the right fit, fall back to the next-ranked hit and repeat — **up to 3 candidates total**. Only if all 3 are wrong, tell the user and ask how to proceed.
 
 There is no slash-command activation, no `/<skill-name>` invocation. The path IS the skill.
 
 ### Do NOT ask before using the top hit
 
-Once `mp:search` returns a top hit, **do not ask the user for permission to read it or run it**. Reading the manifest and executing its instructions IS the job — asking first is friction. The only reasons to pause:
+Once `mp-search` returns a top hit, **do not ask the user for permission to read it or run it**. Reading the manifest and executing its instructions IS the job — asking first is friction. The only reasons to pause:
 
 - All 3 top candidates have been read and none fit → tell the user, ask what to do.
 - The skill's own instructions require confirmation for a destructive/irreversible step (commits, pushes, deletes, etc.) — follow the skill's own guidance, not a generic "should I start?" prompt.
@@ -100,7 +100,7 @@ Output:
            → /Users/me/Projects/some-team-repo/git-rebase
 ```
 
-Then: `mp:load git:rebase` (or read `meta.md` / `SKILL.md` at the path) and follow its instructions.
+Then: `mp-load git:rebase` (or read `meta.md` / `SKILL.md` at the path) and follow its instructions.
 
 ## Auto-reindex
 
@@ -127,13 +127,13 @@ Manual `reindex` is only needed to force a rebuild (e.g., schema changes).
 
 - Try broader / more synonymous queries — the user may have phrased the intent very differently from the skill description.
 - Run `sh ~/.melt/search/action list-roots` to confirm the expected repo is registered.
-- If still nothing, say so explicitly and offer to either (a) add the missing repo to `~/.melt/repos.patterns` or (b) create a new skill via `mp:crud`.
-- DO NOT try `/<skill-name>` slash-commands; they aren't registered. Always go through `mp:search` → path → read manifest (or `mp:load`).
+- If still nothing, say so explicitly and offer to either (a) add the missing repo to `~/.melt/repos.patterns` or (b) create a new skill via `mp-crud`.
+- DO NOT try `/<skill-name>` slash-commands; they aren't registered. Always go through `mp-search` → path → read manifest (or `mp-load`).
 
 ## Related
 
-- `mp:load <skill-name>` — compose the full skill content (manifest + every chunk + applied patches) as one document. Use this after `mp:search` to get the actual skill body.
-- `mp:list` — flat inventory of every skill the pot can see.
-- `mp:crud` — scaffold, validate, trash, restore skills; manage patches against third-party skills.
-- `mp:learn` — lifecycle ops (promote/demote/cleanup/refactor/patch-triage).
+- `mp-load <skill-name>` — compose the full skill content (manifest + every chunk + applied patches) as one document. Use this after `mp-search` to get the actual skill body.
+- `mp-list` — flat inventory of every skill the pot can see.
+- `mp-crud` — scaffold, validate, trash, restore skills; manage patches against third-party skills.
+- `mp-learn` — lifecycle ops (promote/demote/cleanup/refactor/patch-triage).
 - `~/.melt/repos.patterns` — user-edited list of registered roots (melting-pot reads ONLY this path).

@@ -3,7 +3,7 @@ name: sast:semgrep-scan
 description: Use WHEN you need to scan source code for security anti-patterns and bugs — SQL injection, hardcoded secrets, missing auth checks — using Semgrep's rule packs.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Semgrep is the modern SAST: pattern matching at the syntax-tree level (not regex), with rule packs for OWASP Top 10, secrets, framework-specific gotchas (Django CSRF, React XSS), and supply-chain. Unlike a CVE scanner (`dep:vuln-scan`), Semgrep finds problems in YOUR code — not in your dependencies.
 

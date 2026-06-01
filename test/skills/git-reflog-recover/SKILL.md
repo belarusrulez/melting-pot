@@ -3,7 +3,7 @@ name: git:reflog-recover
 description: Use WHEN a branch was force-pushed, deleted, or a hard reset destroyed commits — recover the lost commits by walking the local reflog and `ORIG_HEAD`.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 The reflog is git's local audit trail of every ref movement: every commit, reset, rebase, merge, and checkout. When someone says "I just `reset --hard` and lost two days of work", reflog is the first stop — not stash recovery, not fsck. Each entry is timestamped and survives until `gc` runs (default 90 days for unreachable entries, indefinitely for reachable).
 

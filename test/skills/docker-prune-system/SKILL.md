@@ -3,7 +3,7 @@ name: docker:prune-system
 description: Use WHEN docker is eating disk — reclaim space from dangling images, stopped containers, unused volumes, and build cache without nuking what you still need.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 `docker system prune -a --volumes` is the nuclear option and it WILL delete the volume holding your local Postgres data if you're not paying attention. This skill is the gentler, scoped path: show what would be reclaimed first, prune by category, and protect named/labeled volumes.
 

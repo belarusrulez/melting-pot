@@ -335,7 +335,7 @@ mp_days_since() {
 }
 
 # ----- new_chunk_frontmatter <title> <session-id>: emit a fresh tier-0 frontmatter block -----
-# Used by mp:learn harvest when scaffolding a new chunk. The block lands at
+# Used by mp-learn harvest when scaffolding a new chunk. The block lands at
 # tier 0 (scrap) per the "born at 0" invariant. Caller is responsible for
 # writing the body after.
 mp_new_chunk_frontmatter() {

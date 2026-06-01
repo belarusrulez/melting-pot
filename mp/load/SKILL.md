@@ -1,12 +1,12 @@
 ---
-name: mp:load
-description: Compose and return a skill's FULL content — manifest + every chunk across every tier + applied git-patches — as one unified document. Use after mp:search picks a candidate and you want the actual skill body (not just the digest row). Output is markdown by default; JSON for programmatic consumers. Flags let you restrict to specific tiers, skip patches (raw upstream view), or include each chunk's status_history.
+name: mp-load
+description: Compose and return a skill's FULL content — manifest + every chunk across every tier + applied git-patches — as one unified document. Use after mp-search picks a candidate and you want the actual skill body (not just the digest row). Output is markdown by default; JSON for programmatic consumers. Flags let you restrict to specific tiers, skip patches (raw upstream view), or include each chunk's status_history.
 user_invocable: true
 ---
 
-# mp:load — fully-composed skill document
+# mp-load — fully-composed skill document
 
-`mp:search` returns a digest (one row per skill with ranking metadata). `mp:load` returns the **actual content** — manifest, every chunk across every `N-melting-pot/` tier dir, and your overlay patches applied in-memory against upstream content — as one document.
+`mp-search` returns a digest (one row per skill with ranking metadata). `mp-load` returns the **actual content** — manifest, every chunk across every `N-melting-pot/` tier dir, and your overlay patches applied in-memory against upstream content — as one document.
 
 ## How to invoke
 
@@ -62,7 +62,7 @@ Tier order: **5 → 0** (most-refined first). Within a tier, chunks sort alphabe
 | `--no-patches` | Skip in-memory patch apply — show the raw upstream content. Useful for diffing what your patches change. |
 | `--with-history` | After each chunk body, surface its `status_history:` block; in markdown a trailing **`## Status history (across all chunks)`** section sorts entries by date descending. |
 
-## How `mp:load` resolves a skill
+## How `mp-load` resolves a skill
 
 1. Walk discovery (`mp_discover_skills`) — union of registered upstream + overlay layers.
 2. For each discovered skill, look at:
@@ -75,7 +75,7 @@ Tier order: **5 → 0** (most-refined first). Within a tier, chunks sort alphabe
 When the manifest is a legacy `SKILL.md` (upstream content) and the overlay carries `patches/*.patch` files, those patches are applied in numeric order in-memory at compose time. The composed output shows the patched content; the upstream file is never touched.
 
 - **Patch success** → patched lines appear in the output; the header reads `patches applied: N`.
-- **Patch failure** → a marker is written to `~/.melt/<skill>/patches/.failed/<patch-id>.failed` (Q-001) and apply continues with the next patch. The composed output reads `patches failed: M`. Resolve failures via `mp:learn patch-triage`.
+- **Patch failure** → a marker is written to `~/.melt/<skill>/patches/.failed/<patch-id>.failed` (Q-001) and apply continues with the next patch. The composed output reads `patches failed: M`. Resolve failures via `mp-learn patch-triage`.
 - **`--no-patches`** → no patches are applied, no `.failed/` markers are written. Pure upstream view.
 
 ## Exit codes
@@ -86,14 +86,14 @@ When the manifest is a legacy `SKILL.md` (upstream content) and the overlay carr
 | 1 | no such skill (`<skill-name>` matched neither `name:` nor basename) |
 | 2 | flag / usage error |
 
-## When to use mp:load vs read the manifest directly
+## When to use mp-load vs read the manifest directly
 
 - **Read the manifest directly** (`<path>/meta.md` or `<path>/SKILL.md`) when you only need the skill's procedure / instructions — the manifest is usually self-contained for legacy skills, and for native six-tier skills `meta.md` carries the procedural document.
-- **Use `mp:load`** when you also need the chunk content (e.g., examples, scrap notes, refined snippets across multiple tiers) AND you want patches already applied. That's the "give me everything" mode.
+- **Use `mp-load`** when you also need the chunk content (e.g., examples, scrap notes, refined snippets across multiple tiers) AND you want patches already applied. That's the "give me everything" mode.
 
 ## Related
 
-- `mp:search` — three-axis search; returns paths to feed into `mp:load`.
-- `mp:list` — flat inventory; no content, just metadata.
-- `mp:crud` — scaffold, validate, manage patches.
-- `mp:learn patch-triage` — resolve `.failed/` patch markers.
+- `mp-search` — three-axis search; returns paths to feed into `mp-load`.
+- `mp-list` — flat inventory; no content, just metadata.
+- `mp-crud` — scaffold, validate, manage patches.
+- `mp-learn patch-triage` — resolve `.failed/` patch markers.

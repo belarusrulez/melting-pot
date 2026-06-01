@@ -3,7 +3,7 @@ name: qr:make
 description: Encode text, URLs, or WiFi credentials as a QR code rendered inline in the terminal as ASCII blocks or saved as a PNG/SVG file.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Trigger when a user wants to "share this URL to my phone", "show a WiFi QR for guests", "make a vCard barcode", or generally encode short text into a scannable image. The two workhorse CLIs are `qrencode` (libqrencode) and `qr` (a thin Python wrapper); either is usually one package install away.
 

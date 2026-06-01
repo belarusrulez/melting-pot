@@ -3,7 +3,7 @@ name: k8s:debug-pod
 description: Use WHEN a pod is stuck in CrashLoopBackOff, ImagePullBackOff, or OOMKilled and you need a systematic path through logs, events, exec, and ephemeral debug containers.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill walks the standard Kubernetes triage tree for a misbehaving pod. The biggest mistake is jumping straight to `kubectl logs` — if the container never started, there are no logs, and the answer is in `kubectl describe` events (ImagePullBackOff, FailedScheduling, mount failures, init container errors).
 

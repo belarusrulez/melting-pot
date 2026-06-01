@@ -3,7 +3,7 @@ name: xml:prettify
 description: Use WHEN you have a single-line or sloppily-formatted XML/SVG/HTML document and want canonical indentation, attribute sorting, and entity normalization for human reading or diffing.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 XML showing up as one giant line is the universal "I can't read this" experience. This skill reformats XML with 2-space indentation, line-wraps long attribute lists, and optionally sorts attributes alphabetically per element for stable diffs. The XML namespace prefixes are preserved and quoted attribute order can be made deterministic.
 

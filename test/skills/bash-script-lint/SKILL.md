@@ -3,7 +3,7 @@ name: bash:script-lint
 description: Use WHEN you've written a shell script and want it checked for common footguns — unquoted variables, missing `set -euo pipefail`, broken globs, portability issues — before committing.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Shellcheck is the canonical linter for bash/sh scripts, and most "this script worked yesterday" bugs are exactly the patterns it catches: unquoted `$variable` expansions that split on whitespace, `cd $dir` that silently uses `$HOME` when `$dir` is empty, and `[ $a == $b ]` that breaks under bash `set -u`. This skill runs shellcheck with sensible defaults and groups findings by severity.
 

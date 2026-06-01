@@ -3,7 +3,7 @@ name: git:tag-release
 description: Use WHEN you need to cut a signed annotated release tag, push it to the remote, and trigger downstream release automation (changelog, GitHub release, container tag).
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Production releases should always use **annotated, GPG-signed tags** — lightweight tags are just refs to commits with no author/date/message and are easy to overwrite by accident. This skill drives the canonical flow: pick the version per SemVer, create the tag, push, and let CI handle the rest.
 

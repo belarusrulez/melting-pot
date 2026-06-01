@@ -3,7 +3,7 @@ name: git:worktree-switch
 description: Use WHEN you need to work on multiple branches simultaneously without stashing — git worktree lets you check out N branches into N separate directories backed by one .git.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Worktrees solve the "I'm mid-feature and someone needs a hotfix" problem without `git stash` gymnastics. Each worktree is its own directory with its own checked-out branch, but all share the same object store and refs. Switching is `cd`, not `checkout`.
 

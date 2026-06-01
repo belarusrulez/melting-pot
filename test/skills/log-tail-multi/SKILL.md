@@ -3,7 +3,7 @@ name: log:tail-multi
 description: Follow several log files at once with per-source prefixes, ANSI colors, and an optional regex filter so the user can correlate events across services in one pane.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Reach for this skill when someone needs to watch multiple files simultaneously — for example `nginx/access.log`, `nginx/error.log`, and `app/stdout.log` while reproducing a bug. The classic primitive is `tail -F file1 file2 ...`, which prints `==> file <==` headers when the source switches; that is readable but ugly and offers no colorization or filtering.
 

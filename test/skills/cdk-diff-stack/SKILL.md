@@ -3,7 +3,7 @@ name: cdk:diff-stack
 description: Use WHEN you've changed AWS CDK code and want to see exactly which CloudFormation resources will be created, modified, replaced, or destroyed before deploying.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 CDK synthesizes TypeScript/Python/Go source into CloudFormation templates, and `cdk diff` shows the resource-level diff between what's currently deployed and what the new synthesis would deploy. It's the CDK equivalent of `terraform plan` — review it on every PR, never deploy without it.
 

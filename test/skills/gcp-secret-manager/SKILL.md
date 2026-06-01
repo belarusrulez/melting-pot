@@ -3,7 +3,7 @@ name: gcp:secret-manager
 description: Use WHEN you need to create, read, version, or grant access to secrets in Google Cloud Secret Manager from the command line or CI.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Secret Manager is GCP's `vault kv` equivalent: encrypted, versioned, IAM-gated key/value storage. The mental model that helps: a Secret is a container, a Version is a revision (immutable), the `latest` alias points to the highest-numbered version. Most "we leaked the prod DB password" incidents come from skipping versioning and rotating in place.
 

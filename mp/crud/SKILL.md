@@ -1,15 +1,15 @@
 ---
-name: mp:crud
+name: mp-crud
 description: Lifecycle ops on melting-pot skills and patches. Use when the user says "make a new skill", "add a skill for X", "scaffold a skill", "update the X skill", "remove this skill", "import these skills", "register this folder", "add a patch against upstream X", "list patches", "remove a stale patch", "validate the X skill", "soft-delete the X skill", or describes a workflow they want captured. Native scaffold builds the six-tier layout under ~/.melt/<name>/ with 0-melting-pot/ seeded; --legacy writes a flat SKILL.md. Patch subcommands manage ~/.melt/<skill>/patches/*.patch — the non-destructive way to edit third-party upstream content. Soft-delete via mv to ~/.melt/.trash/; name-derivation rule first '-' becomes ':' (e.g. my-cool-tool → my:cool-tool). All mutating subcommands accept --dry-run.
 user_invocable: true
 disable-model-invocation: true
 ---
 
-# mp:crud — lifecycle for skills + patches
+# mp-crud — lifecycle for skills + patches
 
-`mp:crud` is a **mixed procedure**:
+`mp-crud` is a **mixed procedure**:
 
-- You (the agent) own the *judgment* steps — update-vs-create, choose target repo, write description prose, recognize when a candidate from `mp:search` is the right update target.
+- You (the agent) own the *judgment* steps — update-vs-create, choose target repo, write description prose, recognize when a candidate from `mp-search` is the right update target.
 - The deterministic filesystem operations are delegated to `sh ~/.melt/crud/action <subcommand>`, so the result is identical every time and costs zero LLM tokens.
 
 ```sh
@@ -58,7 +58,7 @@ Writes:
     └── first.md              # tier-0 chunk born here per the "born at 0" invariant
 ```
 
-Use this for everything you create — mp:learn-born skills land here too. The chunk frontmatter includes `promote_when`, `demote_when`, `status_history`, and `provenance` per the chunk schema.
+Use this for everything you create — mp-learn-born skills land here too. The chunk frontmatter includes `promote_when`, `demote_when`, `status_history`, and `provenance` per the chunk schema.
 
 ### Legacy — flat SKILL.md
 
@@ -79,7 +79,7 @@ A user message **names a skill** if it contains an explicit reference: a frontma
 
 ### Step 2 — Search for candidates that might already cover the intent
 
-Distil the request into 3 axis queries (literal / synonym / intent) — same shape as `mp:search`. Run:
+Distil the request into 3 axis queries (literal / synonym / intent) — same shape as `mp-search`. Run:
 
 ```sh
 sh ~/.melt/search/action "<literal>" "<synonym>" "<intent>" --limit 8
@@ -190,7 +190,7 @@ When you DON'T own the upstream repo but need to fix a typo, remove an outdated 
    `patch-remove` also clears any matching `.failed/` marker.
 5. Reindex.
 
-Note: failures during normal `mp:search` indexing record `.failed/` markers automatically and continue past the failure (Q-001 policy-free apply). Use `mp:learn patch-triage` later to resolve them case-by-case.
+Note: failures during normal `mp-search` indexing record `.failed/` markers automatically and continue past the failure (Q-001 policy-free apply). Use `mp-learn patch-triage` later to resolve them case-by-case.
 
 ## Name derivation (canonical)
 
@@ -210,20 +210,20 @@ The `name:` is the directory basename with **only the first `-` replaced by `:`*
 - `~/.melt/<skill>/meta.md` — native overlay manifest.
 - `~/.melt/<skill>/N-melting-pot/` — tier dirs (suffix mandatory per Q-007).
 - `~/.melt/<skill>/patches/` — git patches against upstream content (numbered NNN-).
-- `~/.melt/<skill>/patches/.failed/` — failure markers (LLM-triaged by `mp:learn patch-triage`).
+- `~/.melt/<skill>/patches/.failed/` — failure markers (LLM-triaged by `mp-learn patch-triage`).
 - `~/.melt/.trash/<ISO-ts>-<dirname>/` — soft-deleted skills with `.mp-trash-meta.json`.
 
 ## Edge cases
 
 - **Exact-name collision in Step 2**: default to update unless user says "create new with a different name".
 - **`validate` fails after create/update**: do NOT confirm success. Fix issues, re-run, then continue.
-- **`patch-validate` shows everything `failed`**: probably an upstream rewrite invalidated the patches. Bring them up with `mp:learn patch-triage`.
+- **`patch-validate` shows everything `failed`**: probably an upstream rewrite invalidated the patches. Bring them up with `mp-learn patch-triage`.
 - **bare `N/` tier dir present**: validate warns; rename to `N-melting-pot/` to fix (Q-007).
 
 ## Related
 
-- `mp:search` — search engine. Used in Step 2.
-- `mp:list` — flat inventory. Useful before bulk edits.
-- `mp:load` — read a skill's full content (manifest + chunks + applied patches).
-- `mp:learn patch-triage` — propose fixes for failed patches LLM-style.
+- `mp-search` — search engine. Used in Step 2.
+- `mp-list` — flat inventory. Useful before bulk edits.
+- `mp-load` — read a skill's full content (manifest + chunks + applied patches).
+- `mp-learn patch-triage` — propose fixes for failed patches LLM-style.
 - `~/.melt/lib/discover.sh`, `tier.sh`, `patch.sh` — shared helpers this script delegates to.

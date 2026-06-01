@@ -3,7 +3,7 @@ name: eslint:autofix
 description: Use WHEN you want JS/TS lint errors auto-fixed where possible — and grouped warnings emitted for the rest, with the project's eslint config and plugins picked up automatically.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 ESLint has two modes that get confused: `eslint .` reports problems, `eslint . --fix` writes safe auto-corrections in place. The auto-fixes are restricted to transformations ESLint marks as `fixable: "code"` — that excludes anything that might subtly change behavior (e.g., removing seemingly-unused imports, changing comparator semantics).
 

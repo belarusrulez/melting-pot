@@ -3,7 +3,7 @@ name: shell:history-search
 description: Use WHEN you can't remember the exact command you ran last week but you remember the flags or output — search across bash/zsh history with fuzzy matching and per-directory scoping.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 The default `Ctrl-R` is fine for "the last command starting with X" but useless for "the kubectl command I ran in the staging cluster two weeks ago". This skill wraps `atuin`/`mcfly`/`hstr`-style fuzzy history search with per-directory scoping and time-window filters.
 

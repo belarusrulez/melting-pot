@@ -3,7 +3,7 @@ name: csv:merge
 description: Use WHEN you have two or more CSV files sharing a key column and need to outer-join them into a single deduplicated table, written to a file or piped to stdout.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 This skill stitches CSVs together along a shared key — think `users.csv` plus `orders.csv` plus `addresses.csv`, joined on `user_id`, with every row from every file preserved (full outer join) and duplicate rows collapsed. Output can be written back to disk or streamed to stdout for piping into the next tool. Headers are normalized: case-folded, whitespace-trimmed, and column-name collisions across files get suffixed with the source filename.
 

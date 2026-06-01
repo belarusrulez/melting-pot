@@ -3,7 +3,7 @@
 #
 # Harness-agnostic POSIX sh. When the harness clears a session, this script
 # writes the prior transcript's path to a handshake file the next session's
-# `mp:learn harvest --transcript` consumer reads (and unlinks) on demand.
+# `mp-learn harvest --transcript` consumer reads (and unlinks) on demand.
 #
 # Per Q-003: makes NO Claude-Code-specific JSON assumptions. The installer's
 # REGISTER-HOOKS.md tells the calling agent which harness slot to bind this
@@ -22,7 +22,7 @@
 #   $MP_HOME/learn/.pending-transcript
 #     plain-text, contains the absolute transcript path. Written atomically
 #     via tmp-then-rename so a half-written read can't fire stray triggers.
-#     `mp:learn harvest --transcript` consumes via read-then-unlink.
+#     `mp-learn harvest --transcript` consumes via read-then-unlink.
 #
 # Exit status:
 #   0 — always; the hook is advisory, not gating.
@@ -60,14 +60,14 @@ Cleared.${prior_uuid:+ Resume prior session with:
 The prior session's transcript is saved at:
   $transcript
 
-Run \`mp:learn\` against that transcript? Type \`yes\` as your next
+Run \`mp-learn\` against that transcript? Type \`yes\` as your next
 message to harvest reusable techniques into new or updated skills.
 Anything else (or just start your next task) skips harvesting.
 PROMPT
 else
   cat <<PROMPT
 Cleared. No prior transcript path was supplied to melt-resume.sh, so
-\`mp:learn harvest --transcript\` is unavailable. \`mp:learn harvest\`
+\`mp-learn harvest --transcript\` is unavailable. \`mp-learn harvest\`
 will fall back to live-context proposals via stdin if you invoke it.
 PROMPT
 fi

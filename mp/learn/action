@@ -1,5 +1,5 @@
 #!/bin/sh
-# mp:learn — lifecycle automation for melting-pot.
+# mp-learn — lifecycle automation for melting-pot.
 #
 # Tier movement is driven purely by USAGE QUALITY, not time or rules:
 #   good use -> promote (+1 tier)
@@ -368,7 +368,7 @@ cmd_refactor() {
   cat "$dups"
   printf "\n"
   if [ "$yes" -eq 1 ]; then
-    printf "(v1: refactor --yes is interactive-only — proposals printed above; consolidation must be done by hand or via mp:crud)\n"
+    printf "(v1: refactor --yes is interactive-only — proposals printed above; consolidation must be done by hand or via mp-crud)\n"
   else
     printf "re-run with --yes for interactive consolidation (v1: still prints proposals only).\n"
   fi
@@ -546,7 +546,7 @@ cmd_harvest() {
   printf "  proposals: %s\n" "$n"
   if [ "$apply" -eq 0 ]; then
     printf "\n"
-    printf "(--apply not set — proposals shown but not enacted. Agent decides per-action via mp:crud / mp:learn.)\n"
+    printf "(--apply not set — proposals shown but not enacted. Agent decides per-action via mp-crud / mp-learn.)\n"
     # Print pretty-readable per-action summary.
     i=0
     while [ "$i" -lt "$n" ]; do

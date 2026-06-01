@@ -16,7 +16,7 @@
 Before doing anything else on any new task — before planning, reading files, spawning agents, writing code, or answering — do these steps in order:
 
 1. **Rephrase the user's idea at least three times** in your own words — different framings, not synonyms. Each rephrasing should emphasize a different angle (intent, scope, mechanism, outcome) so they aren't just paraphrases.
-2. **Run `mp:search` once per rephrasing.** Use each rephrasing as the query — different framings will surface different skills.
+2. **Run `mp-search` once per rephrasing.** Use each rephrasing as the query — different framings will surface different skills.
 3. **Compare the search results across the rephrasings.** Look for convergence (same skill ranked highly across multiple framings → strong signal, prefer it) and divergence (different framings surfacing different skills → signal that the request is ambiguous; pick the best-fit skill or ask the user to disambiguate). If no rephrasing surfaces a relevant skill, note that explicitly and proceed without one.
 
 Only after these three steps, start the actual work.

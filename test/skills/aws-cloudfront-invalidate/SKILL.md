@@ -3,7 +3,7 @@ name: aws:cloudfront-invalidate
 description: Use WHEN you just pushed new assets to S3 and need CloudFront to stop serving the cached old version — issue a targeted invalidation without nuking the whole cache.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 CloudFront caches everything aggressively. After `aws s3 sync` deploys new HTML/CSS/JS, users see stale assets until the cache TTL expires (often 24h+) OR you invalidate. Don't invalidate `/*` — it's billable per 1000 paths after the first 1000/month free, and it triggers a global edge purge that takes 5-15 minutes. Target the paths that actually changed.
 

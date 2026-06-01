@@ -2176,7 +2176,7 @@ t_PHASE6_IN_01() {
   RC=$?
   assert_rc 0 || return 1
   assert_stdout_contains "tool calls" || return 1
-  assert_stdout_contains "mp:learn" || return 1
+  assert_stdout_contains "mp-learn" || return 1
   pass "$TNAME"
 }
 
@@ -2190,7 +2190,7 @@ t_PHASE6_IN_02() {
     sh "$NUDGE_BIN" sess-b 5 > "$OUT" 2> "$ERR"
   RC=$?
   assert_rc 0 || return 1
-  if ! grep -q "mp:learn" "$OUT"; then
+  if ! grep -q "mp-learn" "$OUT"; then
     fail "$TNAME" "first call did not emit nudge"; cat "$OUT" >&2; return 1
   fi
   # Second invocation in the same session — marker present, no nudge.
@@ -2224,7 +2224,7 @@ t_PHASE6_IN_03() {
   # Resume prompt mentions both the transcript path and the resume uuid.
   assert_stdout_contains "/tmp/mock-prior.jsonl" || return 1
   assert_stdout_contains "uuid-abc-123" || return 1
-  assert_stdout_contains "Run \`mp:learn\`" || return 1
+  assert_stdout_contains "Run \`mp-learn\`" || return 1
   pass "$TNAME"
 }
 
@@ -2424,7 +2424,7 @@ t_PHASE7_CORPUS_02() {
 
 t_PHASE7_CORPUS_03() {
   TNAME=PHASE7-CORPUS-03
-  # mp:list inventory of the corpus matches the expected count.
+  # mp-list inventory of the corpus matches the expected count.
   t_setup
   t_patterns "$CORPUS_DIR"
   run_list --count

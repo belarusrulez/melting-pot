@@ -8,11 +8,11 @@
 
 You have skills scattered across folders. Some you wrote, some you didn't, none are searchable, and the good ones never improve. melting-pot registers five meta-skills with your agent and lets every other skill live wherever you keep it:
 
-- **`mp:search`** — *ranked fuzzy retrieval.* Multi-axis search (literal / synonym / intent, merged with Reciprocal Rank Fusion) that finds the right skill for the task across every repo you've pointed it at. *"I need a skill for X."*
-- **`mp:list`** — *flat catalog.* Complete, deterministic inventory — the catalog view to `mp:search`'s ranked view. *"What do I even have?"*
-- **`mp:crud`** — *managing the skills.* Create, validate, trash/restore skills; add/remove/validate patches over upstream skills you don't own.
-- **`mp:load`** — *compose.* Assemble a skill's full content — manifest + tier chunks + applied patches — as markdown or JSON.
-- **`mp:learn`** — *evolution.* Promote chunks that earn their keep to higher tiers, demote (and eventually drop) the ones that don't, harvest new chunks from a session, and triage patches that stopped applying.
+- **`mp-search`** — *ranked fuzzy retrieval.* Multi-axis search (literal / synonym / intent, merged with Reciprocal Rank Fusion) that finds the right skill for the task across every repo you've pointed it at. *"I need a skill for X."*
+- **`mp-list`** — *flat catalog.* Complete, deterministic inventory — the catalog view to `mp-search`'s ranked view. *"What do I even have?"*
+- **`mp-crud`** — *managing the skills.* Create, validate, trash/restore skills; add/remove/validate patches over upstream skills you don't own.
+- **`mp-load`** — *compose.* Assemble a skill's full content — manifest + tier chunks + applied patches — as markdown or JSON.
+- **`mp-learn`** — *evolution.* Promote chunks that earn their keep to higher tiers, demote (and eventually drop) the ones that don't, harvest new chunks from a session, and triage patches that stopped applying.
 
 ## How it works
 
@@ -22,16 +22,16 @@ The search is intentionally cheap and robust. The user describes a task in one v
 
 What makes a skill *evolve*:
 
-- **Tiers (`0-melting-pot/` … `5-melting-pot/`).** A skill is a stack of chunks at tiers 0–5. Higher tier = more load-bearing. `mp:load` composes them top-down; the search index folds every tier's content into one ranked row.
-- **Patches over upstream.** Keep a `patches/` stack against a skill you don't own. They apply in-memory at compose/index time; a patch that stops applying is recorded to `patches/.failed/` and the pipeline keeps going (never auto-stops) — `mp:learn patch-triage` walks the failures and proposes fixes.
-- **Usage-driven movement.** `mp:learn promote`/`demote` move chunks between tiers based on how they actually get used. No rule grammar — you (or the agent) decide, the tool records the history.
+- **Tiers (`0-melting-pot/` … `5-melting-pot/`).** A skill is a stack of chunks at tiers 0–5. Higher tier = more load-bearing. `mp-load` composes them top-down; the search index folds every tier's content into one ranked row.
+- **Patches over upstream.** Keep a `patches/` stack against a skill you don't own. They apply in-memory at compose/index time; a patch that stops applying is recorded to `patches/.failed/` and the pipeline keeps going (never auto-stops) — `mp-learn patch-triage` walks the failures and proposes fixes.
+- **Usage-driven movement.** `mp-learn promote`/`demote` move chunks between tiers based on how they actually get used. No rule grammar — you (or the agent) decide, the tool records the history.
 - **Clean overlay at `~/.melt/`.** Your edits live in an overlay separate from the upstream source, which stays read-only.
 
 ## Install
 
 Paste this into a fresh agent session:
 
-> Bootstrap melting-pot on this machine: ask me where to clone `git@github.com:belarusrulez/melting-pot.git` (suggest the directory where you started as the default), then follow `install/INSTALL.md` → **Bootstrap on a fresh machine**, in order. `install/install.sh` does the deterministic filesystem work (seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action`, copies the hooks, emits the hook manifest + task-intake landing). Two steps are yours because they're harness-specific: **(a)** register every shipped skill — discover them with `find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md` and register each one the way your harness expects; **(b)** register the two hooks listed in `~/.melt/REGISTER-HOOKS.md` and append `~/.melt/task-intake.md` to your global rules file. Then build the index and smoke-test (`sh ~/.melt/search/action reindex` ; `sh ~/.melt/list/action --count`). After registering the skills, tell me which ones registered (by their frontmatter `name:`). Don't commit anything.
+> Bootstrap melting-pot on this machine. First detect an existing clone: if you're already inside a `belarusrulez/melting-pot` checkout (origin matches) that's clean and up to date, use it as `$REPO` and **don't ask me where to clone** — only when you're not already in such a clone, ask me where to clone `git@github.com:belarusrulez/melting-pot.git` (suggest the directory where you started as the default). Then follow `install/INSTALL.md` → **Bootstrap on a fresh machine**, in order (its step 1 has the exact detect-or-clone snippet). `install/install.sh` does the deterministic filesystem work (seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action`, copies the hooks, emits the hook manifest + task-intake landing). Two steps are yours because they're harness-specific: **(a)** register every shipped skill — discover them with `find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md` and register each one as a plain personal skill the way your harness expects. Their frontmatter `name:` is hyphenated (`mp-search`, `mp-list`, …) so they register as ordinary personal skills (Claude Code: a hyphen name yields `/mp-search`) — do **not** package them as a plugin or rewrite the names to `mp:search`; **(b)** register the two hooks listed in `~/.melt/REGISTER-HOOKS.md` and append `~/.melt/task-intake.md` to your global rules file. Then build the index and smoke-test (`sh ~/.melt/search/action reindex` ; `sh ~/.melt/list/action --count`). After registering the skills, tell me which ones registered (by their frontmatter `name:`). Don't commit anything.
 
 See [install/INSTALL.md](install/INSTALL.md) for the annotated walkthrough with rationale, the full layout diagram, and notes on each step.
 
@@ -39,11 +39,11 @@ See [install/INSTALL.md](install/INSTALL.md) for the annotated walkthrough with 
 
 Paste this into an agent session:
 
-> Uninstall melting-pot on this machine — do every step without asking for confirmation. (1) Unregister every skill the installer added from `$REPO/mp/`: discover them the same way (`find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md`), then remove each via your harness's mechanism. (2) Unregister the two hooks (`melt-nudge.sh`, `melt-resume.sh`) from your harness config. (3) Remove the `## Task intake` block the installer added to your global rules file — resolve the path first (it may be a symlink; edit the real target). (4) Remove the runtime tree: `rm -rf ~/.melt/`. Leave the cloned source repo on disk — print its path and tell me to `rm -rf` it myself if I want the source gone. Source repos listed in `~/.melt/repos.patterns` are never touched.
+> Uninstall melting-pot on this machine — do every step without asking for confirmation. (1) Unregister every skill the installer added from `$REPO/mp/`: discover them the same way (`find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md`), then remove each via your harness's mechanism. (2) Unregister the two hooks (`melt-nudge.sh`, `melt-resume.sh`) from your harness config. (3) Remove the `## Task intake` block the installer appended to your global rules file — resolve the path first (it may be a symlink; edit the real target). This is the only edit the bootstrap makes there, so the file itself stays; delete just that block. (4) Remove the runtime tree: `rm -rf ~/.melt/`. Leave the cloned source repo on disk — print its path and tell me to `rm -rf` it myself if I want the source gone. Source repos listed in `~/.melt/repos.patterns` are never touched.
 
 ## Day-to-day usage
 
-If you know a skill is needed, just include `mp:search` in your prompt — or let the agent search on its own when it senses a skill would help. To evolve a skill after a session, reach for `mp:learn` (promote/demote/harvest); to compose one for reading, `mp:load`.
+If you know a skill is needed, just include `mp-search` in your prompt — or let the agent search on its own when it senses a skill would help. To evolve a skill after a session, reach for `mp-learn` (promote/demote/harvest); to compose one for reading, `mp-load`.
 
 ## Requirements
 

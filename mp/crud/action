@@ -1,5 +1,5 @@
 #!/bin/sh
-# mp:crud — deterministic helpers for lifecycle ops on skills + patches.
+# mp-crud — deterministic helpers for lifecycle ops on skills + patches.
 #
 # Subcommands:
 #   collision-check <dirname>             exit 0=ok, 1=collision (prints colliding paths)
@@ -169,7 +169,7 @@ user_invocable: true
 
 TODO — describe the procedure. Native six-tier layout: chunks live under
 \`N-melting-pot/\` directories (N in 0..5). New chunks ALWAYS land at tier 0.
-mp:learn promote/demote will move them based on use signals.
+mp-learn promote/demote will move them based on use signals.
 
 Tier directories present:
 - \`0-melting-pot/\` — scrap (born here)

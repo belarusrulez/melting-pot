@@ -35,13 +35,13 @@ confirming the script's stdout reaches the agent.
 
 | Script | Hook event | Purpose | Install-target hint |
 | --- | --- | --- | --- |
-| `~/.melt/hooks/melt-nudge.sh` | `Stop` | After each assistant turn ends, nudges the agent (once per session, after 20 tool calls — `MP_NUDGE_THRESHOLD` env overrides) to run `mp:learn` before `/clear`. Plain-text stdout; harness-agnostic. | Claude Code: add to `hooks.Stop` in `~/.claude/settings.json`. |
-| `~/.melt/hooks/melt-resume.sh` | `SessionStart:clear` | When a session is cleared, writes the prior transcript path to `$MP_HOME/learn/.pending-transcript` and emits a resume-or-harvest prompt. `mp:learn harvest --transcript` consumes the handshake via read-then-unlink. | Claude Code: add to `hooks.SessionStart` with matcher `clear` in `~/.claude/settings.json`. |
+| `~/.melt/hooks/melt-nudge.sh` | `Stop` | After each assistant turn ends, nudges the agent (once per session, after 20 tool calls — `MP_NUDGE_THRESHOLD` env overrides) to run `mp-learn` before `/clear`. Plain-text stdout; harness-agnostic. | Claude Code: add to `hooks.Stop` in `~/.claude/settings.json`. |
+| `~/.melt/hooks/melt-resume.sh` | `SessionStart:clear` | When a session is cleared, writes the prior transcript path to `$MP_HOME/learn/.pending-transcript` and emits a resume-or-harvest prompt. `mp-learn harvest --transcript` consumes the handshake via read-then-unlink. | Claude Code: add to `hooks.SessionStart` with matcher `clear` in `~/.claude/settings.json`. |
 
 ## Task-intake rule
 
 The installer also drops `~/.melt/task-intake.md` — a markdown snippet that
-forces a 3-rephrasing + `mp:search` step before any new task. The
+forces a 3-rephrasing + `mp-search` step before any new task. The
 calling LLM should append the contents of that file to the harness's
 global rules file:
 

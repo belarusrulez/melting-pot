@@ -3,7 +3,7 @@ name: process:tree
 description: Use WHEN you need to see the parent/child process tree on a machine — for triaging a runaway, understanding what spawned what, or finding which child of which daemon is leaking.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Flat `ps aux` doesn't show parentage, and the parentage is often the diagnostic answer: a runaway `gunicorn` worker is interesting; the same worker's parent being a stuck `supervisord` is the actual story. This skill is the tree-view recipe set.
 

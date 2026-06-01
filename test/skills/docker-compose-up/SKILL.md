@@ -3,7 +3,7 @@ name: docker:compose-up
 description: Use WHEN you need to bring up a local multi-service stack from docker-compose.yml, with healthchecks honored, env loaded, and clean shutdown semantics.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 `docker compose up` is most people's first dev-stack tool, and it has more gotchas than the basics suggest: detached vs foreground, build vs pull, recreate vs keep, volume reset on `down -v`. This skill is the playbook for getting a local stack right on the first try.
 

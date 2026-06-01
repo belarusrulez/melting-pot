@@ -3,7 +3,7 @@ name: loki:logql-query
 description: Use WHEN you need to query Loki logs with LogQL — filter by label, parse structured fields, aggregate counts, and export to JSON for a postmortem narrative.
 ---
 
-> Test fixture for mp:search search system.
+> Test fixture for mp-search search system.
 
 Loki is "Prometheus for logs": label-indexed (not content-indexed), so queries that filter on labels are fast and queries that scan content over wide time-ranges are slow. LogQL composes a stream selector `{label=value, ...}` with optional line filters (`|=`, `|~`, `!~`) and pipelined parsers (`json`, `logfmt`, `regexp`).
 
