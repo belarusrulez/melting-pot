@@ -1,0 +1,8 @@
+# melting-pot ships POSIX shell that must keep LF endings on every platform.
+# With git's core.autocrlf=true (common on Windows), checkouts would otherwise
+# get CRLF — which breaks `#!/bin/sh` shebang resolution under strict sh and
+# corrupted Claude Code hook execution on Windows. Force LF for all scripts.
+*.sh        text eol=lf
+action      text eol=lf
+*.tsv       text eol=lf
+.gitignore  text eol=lf

@@ -302,6 +302,24 @@ confirming the script's stdout reaches the agent.
 | \`$nudge_path\` | \`Stop\` | After each assistant turn ends, nudges the agent (once per session, after $MP_NUDGE_THRESHOLD tool calls — \`MP_NUDGE_THRESHOLD\` env overrides) to run \`mp-learn\` before \`/clear\`. Plain-text stdout; harness-agnostic. | Claude Code: add to \`hooks.Stop\` in \`~/.claude/settings.json\`. |
 | \`$resume_path\` | \`SessionStart:clear\` | When a session is cleared, writes the prior transcript path to \`\$MP_HOME/learn/.pending-transcript\` and emits a resume-or-harvest prompt. \`mp-learn harvest --transcript\` consumes the handshake via read-then-unlink. | Claude Code: add to \`hooks.SessionStart\` with matcher \`clear\` in \`~/.claude/settings.json\`. |
 
+### Command format — POSIX vs Windows
+
+The hook scripts carry a \`#!/bin/sh\` shebang and the executable bit, so the
+\`command\` should be the **script path alone** — do NOT prefix it with \`sh \`.
+
+- **macOS / Linux:** \`"command": "$nudge_path"\`.
+- **Windows (Claude Code):** use the POSIX-style path (\`/c/Users/...\`, not
+  \`C:\\Users\\...\`) and pin the Git Bash that runs hooks, otherwise a bare
+  \`sh\` can resolve to an incompatible runtime and fail with
+  \`/usr/bin/sh: ... cannot execute binary file\`. Add to \`~/.claude/settings.json\`:
+
+  \`\`\`json
+  "env": { "CLAUDE_CODE_GIT_BASH_PATH": "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe" }
+  \`\`\`
+
+  then register the command as the script path alone (no \`sh\` prefix), e.g.
+  \`"command": "$nudge_path"\`.
+
 ## Task-intake rule
 
 The installer also drops \`$task_intake_dst\` — a markdown snippet that
