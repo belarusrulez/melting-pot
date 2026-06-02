@@ -482,6 +482,34 @@ cmd_patch_triage() {
 # apply mutations — agent decides which to enact via crud/learn helpers.
 # ============================================================================
 
+# Advisory near-duplicate pre-check for a create proposal. Runs the chunk's
+# title/body through mp-search and warns (to stderr, NEVER blocks) if it
+# strongly resembles an already-indexed chunk — so the agent can prefer an
+# update/patch over a parallel chunk. Heavily guarded: any missing piece
+# (no search action, no index, no hit) is a silent no-op so harvest always
+# proceeds. Matches the project's "never auto-stop the pipeline" philosophy.
+_harvest_dup_warn() {
+  _title="$1"; _skill="$2"
+  [ -n "$_title" ] || return 0
+  _sa="$MP_HOME/search/action"
+  [ -f "$_sa" ] || return 0
+  _hit=$(sh "$_sa" search --format tsv "$_title" "$_title" "$_title" 2>/dev/null | head -1) || return 0
+  [ -n "$_hit" ] || return 0
+  # tsv cols: path<TAB>name<TAB>dirname<TAB>desc<TAB>score<TAB>...
+  _dpath=$(printf '%s' "$_hit" | cut -f1)
+  _dscore=$(printf '%s' "$_hit" | cut -f5)
+  [ -n "$_dpath" ] && [ -n "$_dscore" ] || return 0
+  # Crude RRF-score threshold: a same-skill hit above it is likely the same
+  # knowledge already captured. Advisory only — tune by feel, don't trust hard.
+  case "$_dpath" in
+    *"/$_skill/"*|*"/$_skill") : ;;   # only warn when the match is in the SAME skill
+    *) return 0 ;;
+  esac
+  awk "BEGIN{exit !(($_dscore)+0 >= 0.12)}" 2>/dev/null \
+    && mp_warn "possible duplicate: '$_title' resembles $_dpath (score $_dscore) — prefer an 'update'/patch over a new chunk unless it's genuinely distinct"
+  return 0
+}
+
 cmd_harvest() {
   transcript=""
   session=""
@@ -583,6 +611,7 @@ cmd_harvest() {
         if [ -e "$cp" ]; then
           mp_warn "skip create #$i: target exists: $cp"
         else
+          _harvest_dup_warn "${title:-}" "$skill"
           {
             mp_new_chunk_frontmatter "${title:-untitled}" "${sess:-unknown}"
             printf "\n%s\n" "${body:-TODO body}"

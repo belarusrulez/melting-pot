@@ -71,6 +71,7 @@ The workflow:
 2. Pick the top hit from Convergence (or the top Single-axis if Convergence is empty).
 3. **Read the manifest at the full path shown after `→`** (`<path>/meta.md` if it exists, otherwise `<path>/SKILL.md`) and **immediately start following its instructions**. If you need the full skill content with all chunks and patches applied, use `mp-load <skill-name>` — that composes manifest + every chunk across every tier + applied patches into one document.
 4. If, after reading, that skill is clearly not the right fit, fall back to the next-ranked hit and repeat — **up to 3 candidates total**. Only if all 3 are wrong, tell the user and ask how to proceed.
+5. **Report the use when you're done.** If the skill had **overlay chunks** (anything under `<skill>/N-melting-pot/`) and one materially helped, `sh ~/.melt/learn/action promote <chunk>`; if a chunk misled you, `demote` it. This is what moves the gradient — without it, harvested chunks rot at tier 0 forever. Skip silently when the skill is a pure registered `SKILL.md` with no overlay chunks (nothing to move). See `mp-learn` → *Reporting use*.
 
 There is no slash-command activation, no `/<skill-name>` invocation. The path IS the skill.
 

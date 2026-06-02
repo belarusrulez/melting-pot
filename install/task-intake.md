@@ -30,6 +30,8 @@ There is one **reusable intake loop** with three roles. The **main agent** owns 
 
 3. **Compile into one picture — main agent.** Collect the subagents' distilled results and merge them into a single coherent plan: order dependencies, reconcile overlaps where two subtasks picked related skills, and note any gaps where no skill fit. Only then start the actual work — loading a full skill body into the main thread only when you must execute steps the subagent couldn't (e.g. edits in the user's working tree).
 
+   **When you wrap up, report use (close the loop).** For any skill whose **overlay chunk** (`<skill>/N-melting-pot/…`) materially helped, `sh ~/.melt/learn/action promote <chunk>`; if a chunk misled you, `demote` it. This is the only thing that moves the tier gradient — skipping it leaves harvested knowledge stuck at tier 0. Nothing to do for pure registered skills with no overlay chunks.
+
 ### When to run the loop
 
 - **At intake** — before planning, reading files, spawning agents, writing code, or answering, for every new task.

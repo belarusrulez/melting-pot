@@ -28,13 +28,22 @@ Tier movement is driven by one signal: did the skill help or not?
 
 There are no `promote_when` / `demote_when` rules, no `use_count`/`days`-based thresholds, and no scheduled sweep. The caller decides "good" vs "bad" and calls `promote` or `demote`. `use_count` / `last_used` remain in frontmatter as informational metadata only — they no longer gate movement.
 
+### Reporting use — close the loop (don't let chunks rot at tier 0)
+
+The gradient only climbs if someone reports good use. Harvest alone never promotes — it just births chunks at tier 0. **Make use-reporting a reflex, not a special gesture:** when you act on a skill and one of its **overlay chunks** (anything under `<skill>/N-melting-pot/`) materially helped, call `mp-learn promote <chunk>` right then; if a chunk actively misled you, `mp-learn demote <chunk>`. One signal per real use.
+
+- This belongs at the **end of a task**, in the main agent's compile/wrap-up step — after you've seen whether the chunk earned its keep.
+- **Only overlay chunks move.** A pure registered `SKILL.md` with no overlay chunks has nothing in the gradient (expected — "good use → promote" has no target until a chunk exists). Don't fabricate a chunk just to promote it; harvest one only if there's genuinely new, reusable knowledge.
+- **One use = one tier step.** Don't jump a chunk several tiers for a single good session — recurrence across sessions is the whole point of the climb.
+
 ## Triggers
 
-Three ways `mp-learn` fires:
+Four ways `mp-learn` fires:
 
 1. **Automatic on session-end** — the Stop nudge hook (`melt-nudge.sh`) suggests `mp-learn harvest` before `/clear`. Agent reads live context and pipes proposals to `mp-learn harvest` on stdin.
 2. **SessionStart:clear** — `melt-resume.sh` writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. Next `mp-learn harvest` consumes it (read-then-unlink) in transcript mode.
-3. **Explicit gesture** — user invokes `mp-learn promote <chunk>` / `demote` / `refactor` / `patch-triage` during a session.
+3. **Use-reporting reflex** — whenever an overlay chunk helps or misleads during a task, `promote`/`demote` it on the spot (see *Reporting use* above). This is the signal that actually drives the gradient.
+4. **Explicit gesture** — user invokes `mp-learn promote <chunk>` / `demote` / `refactor` / `patch-triage` during a session.
 
 ## Chunk frontmatter schema (v1)
 
@@ -89,6 +98,24 @@ With `--apply`, the action executes `create` (write a new tier-0 chunk), `promot
 **Transcript mode.** After `/clear`, the SessionStart hook writes the prior `.jsonl` path to `~/.melt/learn/.pending-transcript`. The next `mp-learn harvest` reads + unlinks that file and prints the transcript path. The agent then reads the `.jsonl` itself and pipes structured proposals back in (loop = transcript mode + live-context mode chained).
 
 Alternatively pass `--transcript <path>` explicitly.
+
+#### Harvesting well — generalize, don't memorize
+
+A harvested chunk is reusable knowledge, not a session diary. The common failure is baking in the session's concrete identifiers (`sync-west1-tmux`, `SYNCC17`, a specific repo path) so the chunk only ever fires for that one situation and pollutes search for everyone else. When you author a `create` proposal:
+
+- **State the pattern, not the instance.** Write the rule in general terms ("resolve the region from the active flow's `--profile=`; prefer the dedicated single-id block over shared groups").
+- **Keep exactly one concrete example** as illustration, and label it as such. Strip the rest.
+- **Check for a duplicate first.** Before proposing `create`, `mp-search` the body — if it converges on an existing chunk, propose an `update`/patch to that chunk instead of a parallel one. (On `--apply`, the action also runs an advisory same-skill near-duplicate check and warns; it never blocks.)
+- **Title it by capability**, not by the session ("region resolution from active tmux flow", not "fix for today's test run").
+
+#### Acting on a harvest result
+
+When `harvest` reports what it created (e.g. one new tier-0 chunk), the cheap right move — the born-at-0 invariant already hedged the risk:
+
+1. **Generalization check** (~30s) — does it leak session-specific IDs? If so, edit it down to pattern + one example. This is the highest-value review.
+2. **Truth check** — is the refinement actually correct and reusable, or a one-session coincidence? If unsure, that uncertainty *is* the tier-0 signal — leave it low.
+3. **Leave it at tier 0.** Don't promote on first sighting; promotion is earned by recurrence (see *Reporting use*).
+4. **Prune lazily, in batches.** A bad tier-0 chunk costs only slight index noise and is one `demote`/`mp-crud trash` away. Sweep tier-0 chunks periodically rather than gating every harvest.
 
 ### `promote <chunk>` / `demote <chunk>`
 
