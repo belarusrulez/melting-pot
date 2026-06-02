@@ -9,6 +9,114 @@
 mp_warn() { printf 'WARN: %s\n' "$*" >&2; }
 mp_err()  { printf 'ERROR: %s\n' "$*" >&2; }
 
+# ----- portability helpers (cross-platform: macOS / Linux / Windows) ---------
+# melting-pot is POSIX sh, but two primitives differ on Windows under Git Bash /
+# MSYS2: `ln -s` silently makes a COPY (not a symlink) unless MSYS is configured
+# for native symlinks, and `shasum` may be absent on minimal Git installs. These
+# helpers paper over both so the same scripts run unmodified on every platform.
+
+# mp_sha256 — read stdin, emit the lowercase hex SHA-256 digest (no filename).
+# Tries shasum (macOS), then sha256sum (Linux/Git-Bash), then openssl. The
+# algorithm just has to be stable across a single run, so any of them is fine.
+mp_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 | awk '{print $NF}'
+  else
+    mp_err "no SHA-256 tool found (need one of: shasum, sha256sum, openssl)"
+    return 1
+  fi
+}
+
+# mp_winpath <path> — convert a path to a form a NATIVE sqlite3 binary can open
+# from inside a SQL string (e.g. readfile('<path>')). On Windows the official
+# sqlite3.exe doesn't understand MSYS/Cygwin paths like /c/Users/...; cygpath -m
+# rewrites them to a mixed C:/Users/... form sqlite accepts. No cygpath (macOS/
+# Linux) → identity. Only needed for paths embedded in SQL, NOT shell file ops.
+mp_winpath() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# mp_sqlite3 — run sqlite3 and strip carriage returns from its output. The
+# official Windows sqlite3.exe writes CRLF line endings (text-mode stdout), and a
+# trailing `\r` corrupts captured JSON and shifts the last awk-split TSV field.
+# On macOS/Linux sqlite3 emits LF, so the `tr -d '\r'` is a harmless no-op. Use
+# this for any sqlite3 call whose OUTPUT is captured/parsed. (It masks sqlite3's
+# exit status behind tr's, so callers that must detect query failure should
+# capture sqlite3 directly and strip `\r` from the result variable instead.)
+mp_sqlite3() {
+  sqlite3 "$@" | tr -d '\r'
+}
+
+# mp_symlinks_supported — exit 0 if real symlinks can be created here, 1 if not.
+# Memoised in $MP_SYMLINKS_OK for the life of the process (the probe touches the
+# filesystem, and discovery calls this in a loop). On Windows/MSYS without
+# native-symlink support, `ln -s` creates a copy and `[ -L ]` is false — that is
+# exactly what this probe detects.
+mp_symlinks_supported() {
+  case "${MP_SYMLINKS_OK:-}" in
+    1) return 0 ;;
+    0) return 1 ;;
+  esac
+  _mp_probe=$(mktemp -d -t mp_lnprobe.XXXXXX 2>/dev/null) || { MP_SYMLINKS_OK=0; return 1; }
+  if ln -s "$_mp_probe/target" "$_mp_probe/link" 2>/dev/null && [ -L "$_mp_probe/link" ]; then
+    MP_SYMLINKS_OK=1
+  else
+    MP_SYMLINKS_OK=0
+  fi
+  rm -rf "$_mp_probe" 2>/dev/null
+  [ "$MP_SYMLINKS_OK" = 1 ]
+}
+
+# mp_link_or_mirror_dir <src-dir> <dst-path> — make <dst> reflect <src>.
+# On symlink-capable platforms this is a plain symlink (idempotent: a correct
+# existing link is left alone, a wrong-target link is re-pointed). On platforms
+# without symlinks it mirrors <src>'s *.md chunks into a real directory and drops
+# a `.mp-linked-from` sentinel recording the source — so a later run can tell its
+# own managed mirror apart from a user-authored overlay dir, and refresh it. A
+# pre-existing NON-managed dir/file at <dst> is never clobbered (overlay wins).
+mp_link_or_mirror_dir() {
+  src="$1"; dst="$2"
+  [ -d "$src" ] || return 0
+  if mp_symlinks_supported; then
+    if [ -L "$dst" ]; then
+      cur=$(readlink "$dst")
+      [ "$cur" = "$src" ] && return 0
+      rm -f "$dst"
+      ln -s "$src" "$dst"
+      mp_log debug "re-pointed symlink $dst -> $src"
+    elif [ -e "$dst" ]; then
+      mp_warn "overlay has non-symlink at $dst; upstream $src not linked (overlay wins)"
+    else
+      ln -s "$src" "$dst"
+      mp_log debug "linked $dst -> $src"
+    fi
+    return 0
+  fi
+  # --- no native symlinks (Windows/MSYS): mirror as a real directory ---
+  sentinel="$dst/.mp-linked-from"
+  if [ -e "$dst" ] && [ ! -f "$sentinel" ]; then
+    mp_warn "overlay has non-managed dir at $dst; upstream $src not mirrored (overlay wins)"
+    return 0
+  fi
+  rm -rf "$dst"
+  mkdir -p "$dst"
+  # Copy tier chunks (.md). Hidden/dot files and non-md are intentionally skipped.
+  for _f in "$src"/*.md; do
+    [ -f "$_f" ] && cp "$_f" "$dst"/
+  done
+  printf '%s\n' "$src" > "$sentinel"
+  mp_log debug "mirrored $dst <- $src (no symlink support)"
+  return 0
+}
+
 # Leveled logging — emits to stderr if MP_LOG_LEVEL <= level.
 # Levels: verbose=0 debug=1 info=2 warning=3 error=4 critical=5
 mp_log_level_num() {
@@ -198,6 +306,10 @@ mp_overlay_dir_for() {
 # Idempotent: existing symlinks pointing at the right target are left alone;
 # wrong-target symlinks are replaced; existing non-symlink dirs/files are NOT
 # touched (overlay-authored content wins — log a warning).
+# On symlink-capable platforms (macOS/Linux) these are real symlinks; on
+# Windows/MSYS without native-symlink support they are mirrored real dirs (see
+# mp_link_or_mirror_dir). Either way the downstream search/load pipeline reads
+# uniformly through the overlay path.
 mp_symlink_upstream_tiers() {
   ups="$1"; ovl="$2"
   [ -d "$ups" ] || return 0
@@ -207,20 +319,7 @@ mp_symlink_upstream_tiers() {
     src="$ups/${n}-melting-pot"
     dst="$ovl/${n}-melting-pot"
     [ -d "$src" ] || continue
-    if [ -L "$dst" ]; then
-      cur=$(readlink "$dst")
-      if [ "$cur" = "$src" ]; then
-        continue
-      fi
-      rm -f "$dst"
-      ln -s "$src" "$dst"
-      mp_log debug "re-pointed symlink $dst -> $src"
-    elif [ -e "$dst" ]; then
-      mp_warn "overlay has non-symlink at $dst; upstream $src not linked (overlay wins)"
-    else
-      ln -s "$src" "$dst"
-      mp_log debug "linked $dst -> $src"
-    fi
+    mp_link_or_mirror_dir "$src" "$dst"
   done
   return 0
 }

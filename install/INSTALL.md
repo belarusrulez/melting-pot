@@ -4,7 +4,9 @@
 
 - **macOS** — tested. Everything used by the bootstrap is preinstalled on 14+.
 - **Linux** — should work (POSIX `sh` + standard coreutils); needs `sqlite3` ≥ 3.20 for FTS5. Untested in CI — open an issue if you hit a portability bug.
-- **Windows** — use WSL.
+- **Windows** — runs natively under **Git Bash / MSYS2** (ships with [Git for Windows](https://gitforwindows.org/)); WSL also works. Invoke everything through `sh` (e.g. `sh ~/.melt/search/action …`), exactly as on macOS/Linux. Two platform differences are handled for you:
+  - **`sqlite3` is not bundled with Windows.** Install it and put it on `PATH` before step 8: `winget install SQLite.SQLite` (reopen the shell afterwards), `scoop install sqlite`, `choco install sqlite`, or the [precompiled tools zip](https://sqlite.org/download.html). `sh ~/.melt/search/action doctor` reports whether it's found.
+  - **Symlinks degrade to shims/mirrors.** When the shell can't create real symlinks (the MSYS default), `install.sh` writes a shim `action` per skill (execs the real repo action with `MP_LIB_DIR` set — still live) and discovery **mirrors** upstream `N-melting-pot/` tier dirs instead of symlinking them. Everything downstream behaves identically. To get real symlinks instead, enable Windows Developer Mode and export `MSYS=winsymlinks:nativestrict`.
 
 > **Agent?** This is the annotated walkthrough. The one-paste install prompt lives in the [README](../README.md#install--update) — that's where most users start. To run the bootstrap, do **§ Bootstrap on a fresh machine** below in order with `Bash`; each command stands alone.
 >
@@ -50,7 +52,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
 ~/.melt/                             ← runtime state (created by install.sh)
 ├── repos.patterns                   ← user-edited list of skill source roots
-├── <skill>/action → /<repo>/melting-pot/mp/<skill>/action   ← symlinked CLI
+├── <skill>/action → /<repo>/melting-pot/mp/<skill>/action   ← symlinked CLI (shim that execs the same path on Windows)
 ├── search/index.db                  ← FTS5 index, rebuilt atomically
 ├── learn/                           ← session state (.tool-count-*, .pending-transcript)
 ├── hooks/{melt-nudge.sh,melt-resume.sh}   ← copied hook scripts
@@ -98,14 +100,14 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
    When the detection branch fires (already in a clean, up-to-date `belarusrulez/melting-pot` checkout), **do not ask where to clone** — that question only applies to the `else` branch.
 
-2. **Verify dependencies** (all preinstalled on macOS 14+):
+2. **Verify dependencies** (preinstalled on macOS 14+ and most Linux; on Windows install `sqlite3` first — see **Platform support** above):
 
    ```sh
    sqlite3 --version | grep -q '3\.[0-9][0-9]'   # FTS5 needs sqlite3 ≥ 3.20
-   sh -c 'true'                                  # /bin/sh works
+   sh -c 'true'                                  # POSIX sh works (Git Bash on Windows)
    ```
 
-3. **Run the deterministic installer.** It seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action`, copies the hooks, and emits the hook manifest + task-intake landing. Preview first with `--dry-run`:
+3. **Run the deterministic installer.** It seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action` (or writes a shim where symlinks aren't available, e.g. Windows/MSYS), copies the hooks, and emits the hook manifest + task-intake landing. Preview first with `--dry-run`:
 
    ```sh
    sh "$REPO/install/install.sh" --dry-run            # preview

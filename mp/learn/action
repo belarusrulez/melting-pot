@@ -532,15 +532,19 @@ cmd_harvest() {
     rm -f "$buf"
     return 1
   fi
+  # sqlite3's readfile() opens the path itself, so it needs a native path on
+  # Windows (sqlite3.exe can't read MSYS /c/... paths). Shell ops below keep
+  # using $buf; only the SQL readfile() args use $bufw. No-op off Windows.
+  bufw=$(mp_winpath "$buf")
   # Validate JSON via sqlite3 (POSIX stock).
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$buf" | sqlite3 2>/dev/null || true)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$bufw" | mp_sqlite3 2>/dev/null || true)
   if [ "$valid" != "1" ]; then
     mp_err "harvest: stdin is not valid JSON"
     rm -f "$buf"
     return 1
   fi
   # Count proposals (top-level "proposals" array length).
-  n=$(printf "select coalesce(json_array_length(json_extract(readfile('%s'),'\$.proposals')),0);\n" "$buf" | sqlite3 2>/dev/null || printf 0)
+  n=$(printf "select coalesce(json_array_length(json_extract(readfile('%s'),'\$.proposals')),0);\n" "$bufw" | mp_sqlite3 2>/dev/null || printf 0)
   n=${n:-0}
   printf "live-context harvest\n"
   printf "  proposals: %s\n" "$n"
@@ -550,9 +554,9 @@ cmd_harvest() {
     # Print pretty-readable per-action summary.
     i=0
     while [ "$i" -lt "$n" ]; do
-      a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-      s=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n"  "$buf" "$i" | sqlite3 2>/dev/null || true)
-      c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n"  "$buf" "$i" | sqlite3 2>/dev/null || true)
+      a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+      s=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n"  "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+      c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n"  "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
       printf "  %s: action=%s skill=%s chunk=%s\n" "$i" "${a:-}" "${s:-}" "${c:-}"
       i=$((i + 1))
     done
@@ -562,14 +566,14 @@ cmd_harvest() {
   # --apply: execute each create/update/promote/demote.
   i=0
   while [ "$i" -lt "$n" ]; do
-    a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+    a=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].action');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
     case "$a" in
       create)
-        skill=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        title=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].title');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        cname=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk_name');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        body=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].body');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
-        sess=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].session');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        skill=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].skill');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+        title=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].title');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+        cname=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk_name');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+        body=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].body');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
+        sess=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].session');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
         [ -z "$skill" ] && { mp_warn "skip create #$i: missing skill"; i=$((i+1)); continue; }
         [ -z "$cname" ] && cname="harvested-$(date -u +%s)-$i"
         case "$cname" in *.md) ;; *) cname="$cname.md" ;; esac
@@ -587,11 +591,11 @@ cmd_harvest() {
         fi
         ;;
       promote)
-        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
         if [ -n "$c" ]; then cmd_promote "$c"; else mp_warn "skip promote #$i: missing chunk"; fi
         ;;
       demote)
-        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$buf" "$i" | sqlite3 2>/dev/null || true)
+        c=$(printf "select json_extract(readfile('%s'),'\$.proposals[%s].chunk');\n" "$bufw" "$i" | mp_sqlite3 2>/dev/null || true)
         if [ -n "$c" ]; then cmd_demote "$c"; else mp_warn "skip demote #$i: missing chunk"; fi
         ;;
       update)

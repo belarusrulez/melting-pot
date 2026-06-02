@@ -192,7 +192,10 @@ mp_detect_full_overlay_mode() {
   [ -d "$ovl" ] || return 1
   for n in 0 1 2 3 4 5; do
     td="$ovl/${n}-melting-pot"
-    if [ -L "$td" ]; then
+    # A symlink (macOS/Linux) OR a mirror with the `.mp-linked-from` sentinel
+    # (Windows/MSYS, see mp_link_or_mirror_dir) both mean upstream supplied this
+    # tier dir — i.e. full-overlay mode is active.
+    if [ -L "$td" ] || [ -f "$td/.mp-linked-from" ]; then
       return 0
     fi
   done

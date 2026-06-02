@@ -49,7 +49,9 @@ If you know a skill is needed, just include `mp-search` in your prompt — or le
 
 - **macOS** — verified. Everything the bootstrap uses (`/bin/sh`, `sqlite3`, `git`, `find`, `grep`, `awk`, `sed`, `readlink`, `ln -s`, `mktemp`) ships with macOS 14+.
 - **Linux** — works on standard distros (POSIX `sh` + coreutils). Needs `sqlite3` ≥ 3.20 for FTS5. Open an issue on portability bugs.
-- **Windows** — use WSL for now.
+- **Windows** — runs natively under **Git Bash / MSYS2** (bundled with [Git for Windows](https://gitforwindows.org/)); WSL also works. Two things differ from macOS/Linux and are handled automatically:
+  - **`sqlite3` is not bundled.** Install it once and make sure it's on `PATH`: `winget install SQLite.SQLite` (then reopen the shell), or `scoop install sqlite`, or `choco install sqlite`, or grab the [precompiled tools](https://sqlite.org/download.html) and add `sqlite3.exe` to `PATH`. Run `sh ~/.melt/search/action doctor` to confirm it's found.
+  - **Symlinks may be unavailable.** Without native-symlink support, Git Bash silently turns `ln -s` into a copy. The installer detects this and writes a small **shim** for each skill's `action` instead of a symlink (it execs the real repo `action`, so edits stay live); upstream tier dirs are **mirrored** instead of symlinked. No action needed — but if you want true symlinks, enable Developer Mode (or run elevated) and set `MSYS=winsymlinks:nativestrict`.
 - An agent that loads skills from a per-skill `SKILL.md` file (Claude Code, Cursor, Cline, anything compatible).
 
 ## License

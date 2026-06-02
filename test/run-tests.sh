@@ -25,6 +25,35 @@ LIST_BIN="$ROOT/mp/list/action"
 CRUD_BIN="$ROOT/mp/crud/action"
 LEARN_BIN="$ROOT/mp/learn/action"
 
+# ----- platform capability probes (cross-platform: macOS / Linux / Windows) --
+# Real symlinks aren't available under Git Bash / MSYS2 without native-symlink
+# support; the installer/discovery fall back to shims/mirrors there, so the
+# assertions below adapt instead of hard-failing.
+_probe=$(mktemp -d 2>/dev/null)
+if [ -n "$_probe" ] && ln -s "$_probe/t" "$_probe/l" 2>/dev/null && [ -L "$_probe/l" ]; then
+  SYMLINKS_OK=1
+else
+  SYMLINKS_OK=0
+fi
+[ -n "$_probe" ] && rm -rf "$_probe" 2>/dev/null
+command -v sqlite3 >/dev/null 2>&1 && HAVE_SQLITE3=1 || HAVE_SQLITE3=0
+
+# Translate a path for sqlite3's readfile() inside SQL strings. On Windows the
+# native sqlite3.exe can't open MSYS /c/... paths embedded in SQL (MSYS only
+# auto-translates command-line ARGS, not bytes inside a SQL string), so use
+# cygpath -m. No-op on macOS/Linux.
+twin() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
+
+# Portable SHA-256 of a file (hex only) — shasum / sha256sum / openssl.
+t_sha() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$1" 2>/dev/null | awk '{print $NF}'
+  fi
+}
+
 # ----- output helpers (no colors — keep portable) -----
 VERBOSE=0
 PASS_N=0
@@ -103,8 +132,14 @@ assert_file_exists() {
   fail "$TNAME" "expected file: $1"; return 1
 }
 assert_symlink_to() {
-  if [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; then return 0; fi
-  fail "$TNAME" "expected symlink $1 -> $2 (actual: $(readlink "$1" 2>/dev/null || echo none))"; return 1
+  if [ "$SYMLINKS_OK" = 1 ]; then
+    if [ -L "$1" ] && [ "$(readlink "$1")" = "$2" ]; then return 0; fi
+    fail "$TNAME" "expected symlink $1 -> $2 (actual: $(readlink "$1" 2>/dev/null || echo none))"; return 1
+  fi
+  # No native symlinks (Windows/MSYS): discovery mirrors the dir and records the
+  # source in a `.mp-linked-from` sentinel.
+  if [ -d "$1" ] && [ "$(cat "$1/.mp-linked-from" 2>/dev/null)" = "$2" ]; then return 0; fi
+  fail "$TNAME" "expected mirror $1 <- $2 (sentinel: $(cat "$1/.mp-linked-from" 2>/dev/null || echo none))"; return 1
 }
 assert_eq() {
   if [ "$1" = "$2" ]; then return 0; fi
@@ -324,7 +359,9 @@ EOF
   if [ -L "$MP_HOME/foo/0-melting-pot" ]; then
     fail "$TNAME" "real dir was replaced with a symlink"; return 1
   fi
-  assert_stderr_contains "non-symlink at" || return 1
+  # Wording differs by platform (symlink: "non-symlink at"; mirror: "non-managed
+  # dir at") but both end with the "(overlay wins)" verdict.
+  assert_stderr_contains "overlay wins" || return 1
   pass "$TNAME"
 }
 
@@ -803,7 +840,7 @@ EOF
   run_lib mp_compose_skill git-rebase --format json
   assert_rc 0 || return 1
   # Validate with sqlite3 (POSIX stock).
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "json_valid returned $valid (expected 1); output:"
     cat "$OUT" >&2
@@ -935,7 +972,7 @@ t_PHASE2_SRCH_05() {
   t_patterns "$reg"
   run_search search --format json "git" "rebase" "history"
   assert_rc 0 || return 1
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "invalid JSON; got: $(cat "$OUT")"; return 1
   fi
@@ -957,10 +994,10 @@ t_PHASE2_SRCH_06() {
   t_patterns "$reg"
   run_search reindex > /dev/null
   hash1=$(cat "$MP_HOME/search/.index_hash")
-  cnt1=$(sqlite3 "$MP_HOME/search/index.db" 'SELECT COUNT(*) FROM skills;')
+  cnt1=$(sqlite3 "$MP_HOME/search/index.db" 'SELECT COUNT(*) FROM skills;' | tr -d '\r')
   run_search reindex > /dev/null
   hash2=$(cat "$MP_HOME/search/.index_hash")
-  cnt2=$(sqlite3 "$MP_HOME/search/index.db" 'SELECT COUNT(*) FROM skills;')
+  cnt2=$(sqlite3 "$MP_HOME/search/index.db" 'SELECT COUNT(*) FROM skills;' | tr -d '\r')
   assert_eq "$hash1" "$hash2" || return 1
   assert_eq "$cnt1" "$cnt2" || return 1
   pass "$TNAME"
@@ -1175,11 +1212,11 @@ t_PHASE2_SRCH_16() {
   t_patterns "$reg"
   run_search search --format json "git" "history" "rebase"
   assert_rc 0 || return 1
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "invalid JSON for multi-result search; got: $(cat "$OUT")"; return 1
   fi
-  n=$(printf "select json_array_length(readfile('%s'),'\$.results');\n" "$OUT" | sqlite3)
+  n=$(printf "select json_array_length(readfile('%s'),'\$.results');\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "${n:-0}" -lt 2 ]; then
     fail "$TNAME" "expected >=2 results to exercise comma-join; got n=$n: $(cat "$OUT")"; return 1
   fi
@@ -1247,7 +1284,7 @@ body
 EOF
   run_load git-rebase --format json
   assert_rc 0 || return 1
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "json_valid returned $valid; got:"
     cat "$OUT" >&2
@@ -1460,7 +1497,7 @@ t_PHASE3_LIST_04() {
   t_patterns "$reg"
   run_list --format json
   assert_rc 0 || return 1
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "json_valid returned $valid"; cat "$OUT" >&2; return 1
   fi
@@ -2050,7 +2087,7 @@ z
 EOF
   run_learn patch-triage --format json
   assert_rc 0 || return 1
-  valid=$(printf "select json_valid(readfile('%s'));\n" "$OUT" | sqlite3)
+  valid=$(printf "select json_valid(readfile('%s'));\n" "$(twin "$OUT")" | sqlite3 | tr -d '\r')
   if [ "$valid" != "1" ]; then
     fail "$TNAME" "json_valid returned $valid"; cat "$OUT" >&2; return 1
   fi
@@ -2237,7 +2274,7 @@ t_PHASE6_IN_04() {
   fake_home="$TDIR/fake-home"
   # Snapshot the repo-side manifest BEFORE running, then verify after.
   repo_manifest="$ROOT/install/REGISTER-HOOKS.md"
-  repo_hash_before=$(shasum "$repo_manifest" | awk '{print $1}')
+  repo_hash_before=$(t_sha "$repo_manifest")
   run_install
   assert_rc 0 || return 1
   # Sandbox manifest must exist and contain the expected markers.
@@ -2255,7 +2292,7 @@ t_PHASE6_IN_04() {
     fail "$TNAME" "sandbox manifest missing absolute nudge path"; return 1
   fi
   # Repo-side manifest must NOT have been overwritten with sandbox paths.
-  repo_hash_after=$(shasum "$repo_manifest" | awk '{print $1}')
+  repo_hash_after=$(t_sha "$repo_manifest")
   assert_eq "$repo_hash_after" "$repo_hash_before" || return 1
   pass "$TNAME"
 }
@@ -2270,12 +2307,12 @@ t_PHASE6_IN_05() {
   cat > "$fake_home/.claude/settings.json" <<'EOF'
 {"baseline":"do-not-touch"}
 EOF
-  before=$(shasum "$fake_home/.claude/settings.json" | awk '{print $1}')
+  before=$(t_sha "$fake_home/.claude/settings.json")
   run_install
   assert_rc 0 || return 1
   # The file MUST still exist with identical contents.
   assert_file_exists "$fake_home/.claude/settings.json" || return 1
-  after=$(shasum "$fake_home/.claude/settings.json" | awk '{print $1}')
+  after=$(t_sha "$fake_home/.claude/settings.json")
   assert_eq "$after" "$before" || return 1
   # And the body must be byte-identical.
   body=$(cat "$fake_home/.claude/settings.json")
@@ -2290,13 +2327,13 @@ t_PHASE6_IN_07() {
   t_setup
   fake_home="$TDIR/fake-home"
   repo_manifest="$ROOT/install/REGISTER-HOOKS.md"
-  repo_hash_before=$(shasum "$repo_manifest" | awk '{print $1}')
+  repo_hash_before=$(t_sha "$repo_manifest")
   run_install --dry-run
   assert_rc 0 || return 1
   if [ -d "$fake_home/.melt" ]; then
     fail "$TNAME" "--dry-run created $fake_home/.melt"; return 1
   fi
-  repo_hash_after=$(shasum "$repo_manifest" | awk '{print $1}')
+  repo_hash_after=$(t_sha "$repo_manifest")
   assert_eq "$repo_hash_after" "$repo_hash_before" || return 1
   pass "$TNAME"
 }
@@ -2329,14 +2366,27 @@ t_PHASE6_IN_09() {
   assert_rc 0 || return 1
   for skill in search list crud load learn; do
     link="$fake_home/.melt/$skill/action"
-    if [ ! -L "$link" ]; then
-      fail "$TNAME" "missing action symlink: $link"; return 1
-    fi
-    if [ ! -f "$link" ]; then
-      fail "$TNAME" "action symlink does not resolve to a file: $link"; return 1
-    fi
-    if [ "$(readlink "$link")" != "$ROOT/mp/$skill/action" ]; then
-      fail "$TNAME" "symlink target wrong: $(readlink "$link")"; return 1
+    if [ "$SYMLINKS_OK" = 1 ]; then
+      if [ ! -L "$link" ]; then
+        fail "$TNAME" "missing action symlink: $link"; return 1
+      fi
+      if [ ! -f "$link" ]; then
+        fail "$TNAME" "action symlink does not resolve to a file: $link"; return 1
+      fi
+      if [ "$(readlink "$link")" != "$ROOT/mp/$skill/action" ]; then
+        fail "$TNAME" "symlink target wrong: $(readlink "$link")"; return 1
+      fi
+    else
+      # Windows/MSYS: a shim that execs the real action with MP_LIB_DIR set.
+      if [ ! -f "$link" ]; then
+        fail "$TNAME" "missing action shim: $link"; return 1
+      fi
+      if ! grep -qF -- "$ROOT/mp/$skill/action" "$link"; then
+        fail "$TNAME" "shim does not reference real action: $link"; return 1
+      fi
+      if ! grep -qF -- "$ROOT/mp/lib" "$link"; then
+        fail "$TNAME" "shim does not set MP_LIB_DIR to repo lib: $link"; return 1
+      fi
     fi
   done
   # End-to-end: the symlinked search CLI runs and reports usage/help cleanly.
@@ -2495,6 +2545,18 @@ PHASE6-IN-01 PHASE6-IN-02 PHASE6-IN-03 PHASE6-IN-04 PHASE6-IN-05
 PHASE6-IN-07 PHASE6-IN-08 PHASE6-IN-09
 PHASE7-CORPUS-01 PHASE7-CORPUS-02 PHASE7-CORPUS-03 PHASE7-CORPUS-04"
 
+# Tests that exercise the sqlite3-backed FTS5 index (directly, or via the
+# json_valid() helper). On a host without sqlite3 — e.g. a fresh Windows box
+# before `winget install SQLite.SQLite` — these are SKIPPED rather than failed,
+# so the rest of the suite still reports a clean result.
+SQLITE3_TESTS="LIB-TIER-07 LIB-COMPOSE-03
+PHASE2-SRCH-01 PHASE2-SRCH-02 PHASE2-SRCH-03 PHASE2-SRCH-04 PHASE2-SRCH-05
+PHASE2-SRCH-07 PHASE2-SRCH-10 PHASE2-SRCH-11 PHASE2-SRCH-12 PHASE2-SRCH-13
+PHASE2-SRCH-14 PHASE2-SRCH-15 PHASE2-SRCH-16
+PHASE3-LIST-04 PHASE4-LOAD-02
+PHASE5-LEARN-01 PHASE5-LEARN-02 PHASE5-LEARN-12
+PHASE7-CORPUS-02"
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -v|--verbose) VERBOSE=1; shift ;;
@@ -2513,6 +2575,8 @@ fi
 
 printf "running tests from %s\n" "$ROOT"
 printf "  lib dir: %s\n" "$LIB_DIR"
+[ "$SYMLINKS_OK" = 1 ] || printf "  note: native symlinks unavailable — testing shim/mirror fallbacks\n"
+[ "$HAVE_SQLITE3" = 1 ] || printf "  note: sqlite3 not found — index-backed tests will be SKIPPED (install sqlite3 to run them)\n"
 printf "\n"
 
 for t in $TESTS; do
@@ -2520,6 +2584,12 @@ for t in $TESTS; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     skip "$t" "no such test"
     continue
+  fi
+  if [ "$HAVE_SQLITE3" != 1 ]; then
+    # Normalise newlines→spaces so end-of-line entries still match.
+    case " $(printf '%s' "$SQLITE3_TESTS" | tr '\n' ' ') " in
+      *" $t "*) skip "$t" "requires sqlite3"; continue ;;
+    esac
   fi
   "$fn" || true
 done
