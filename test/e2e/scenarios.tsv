@@ -1,0 +1,8 @@
+# P0 smoke set — agent-loop scenarios (plans/e2e-test-plan.md §5c).
+# Columns (TAB-separated):  id  model  skill  substr  prompt
+# - skill  = bare dirname the agent MUST fire (oracle asserts Skill(skill==<this>))
+# - substr = substring that MUST appear in the matching tool_result ("-" to skip)
+# Lines starting with # and blank lines are ignored.
+I-canary	claude-haiku-4-5-20251001	search	git-bisect	I need to find which past commit introduced a bug by binary-searching through git history. First use the "search" skill (run its action script) to find the most relevant melting-pot skill, then report the skill name it returns. You MUST invoke the search skill.
+D-agent-synonym	claude-haiku-4-5-20251001	search	secret-rotate-cli	I want to roll and replace leaked credentials/API keys for a service. Use the "search" skill (run its action) to locate the best melting-pot skill for this, then tell me which skill it ranked first. You MUST invoke the search skill.
+L-load-basic	claude-haiku-4-5-20251001	load	autosquash	Find the melting-pot skill about interactive git rebase, then load its full body so you can read its actual instructions. Use the search skill to find it, then the load skill to compose its full content. You MUST invoke the load skill.
