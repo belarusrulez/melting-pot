@@ -2167,6 +2167,134 @@ t_PHASE5_LEARN_16() {
   pass "$TNAME"
 }
 
+t_PHASE5_LEARN_17() {
+  TNAME=PHASE5-LEARN-17
+  # status_history is APPEND-ONLY across a +1/+1/-1 sequence: every move adds
+  # an entry, none are clobbered, and the final tier reflects the net movement.
+  t_setup
+  d="$MP_HOME/osc-skill"
+  mkdir -p "$d/0-melting-pot"
+  mk_chunk "$d/0-melting-pot/c.md" 0           # history: born@0
+  run_learn promote "osc-skill/0-melting-pot/c.md"; assert_rc 0 || return 1
+  run_learn promote "osc-skill/1-melting-pot/c.md"; assert_rc 0 || return 1
+  run_learn demote  "osc-skill/2-melting-pot/c.md"; assert_rc 0 || return 1
+  final="$d/1-melting-pot/c.md"
+  assert_file_exists "$final" || return 1
+  # all four reasons present (born, +0, +1, -2), none clobbered
+  for needle in '"born"' 'promoted from tier 0' 'promoted from tier 1' 'demoted from tier 2'; do
+    if ! grep -q "$needle" "$final"; then
+      fail "$TNAME" "history lost entry: $needle"; cat "$final" >&2; return 1
+    fi
+  done
+  n=$(grep -c 'tier:' "$final")
+  assert_eq "$n" 4 || { cat "$final" >&2; return 1; }
+  pass "$TNAME"
+}
+
+t_PHASE5_LEARN_18() {
+  TNAME=PHASE5-LEARN-18
+  # promote refuses when a same-named chunk already sits at tier+1 (no clobber).
+  t_setup
+  d="$MP_HOME/coll-skill"
+  mkdir -p "$d/0-melting-pot" "$d/1-melting-pot"
+  mk_chunk "$d/0-melting-pot/dup.md" 0
+  mk_chunk "$d/1-melting-pot/dup.md" 1
+  before0=$(cat "$d/0-melting-pot/dup.md"); before1=$(cat "$d/1-melting-pot/dup.md")
+  run_learn promote "coll-skill/0-melting-pot/dup.md"
+  assert_rc 1 || return 1
+  assert_stderr_contains "target exists" || return 1
+  assert_eq "$(cat "$d/0-melting-pot/dup.md")" "$before0" || return 1
+  assert_eq "$(cat "$d/1-melting-pot/dup.md")" "$before1" || return 1
+  pass "$TNAME"
+}
+
+t_PHASE5_LEARN_19() {
+  TNAME=PHASE5-LEARN-19
+  # demote refuses when a same-named chunk already sits at tier-1 (no clobber).
+  t_setup
+  d="$MP_HOME/coll-skill2"
+  mkdir -p "$d/1-melting-pot" "$d/2-melting-pot"
+  mk_chunk "$d/2-melting-pot/dup.md" 2
+  mk_chunk "$d/1-melting-pot/dup.md" 1
+  run_learn demote "coll-skill2/2-melting-pot/dup.md"
+  assert_rc 1 || return 1
+  assert_stderr_contains "target exists" || return 1
+  assert_file_exists "$d/2-melting-pot/dup.md" || return 1
+  pass "$TNAME"
+}
+
+t_PHASE5_LEARN_20() {
+  TNAME=PHASE5-LEARN-20
+  # --dry-run demote at a MID tier reports the move but mutates nothing
+  # (LEARN-16 only covers the tier-0 remove path).
+  t_setup
+  d="$MP_HOME/dry-mid"
+  mkdir -p "$d/2-melting-pot"
+  mk_chunk "$d/2-melting-pot/m.md" 2
+  before=$(cat "$d/2-melting-pot/m.md")
+  run_learn demote "dry-mid/2-melting-pot/m.md" --dry-run
+  assert_rc 0 || return 1
+  assert_stdout_contains "DRY-RUN demote" || return 1
+  assert_eq "$(cat "$d/2-melting-pot/m.md")" "$before" || return 1
+  if [ -e "$d/1-melting-pot/m.md" ]; then
+    fail "$TNAME" "--dry-run created tier-1 copy"; return 1
+  fi
+  pass "$TNAME"
+}
+
+t_PHASE5_LEARN_21() {
+  TNAME=PHASE5-LEARN-21
+  # promote/demote of a non-existent chunk: exit 1, clear error, no side effect.
+  t_setup
+  run_learn promote "ghost-skill/0-melting-pot/nope.md"
+  assert_rc 1 || return 1
+  assert_stderr_contains "no such chunk" || return 1
+  run_learn demote "ghost-skill/3-melting-pot/nope.md"
+  assert_rc 1 || return 1
+  assert_stderr_contains "no such chunk" || return 1
+  pass "$TNAME"
+}
+
+t_PHASE5_LEARN_22() {
+  TNAME=PHASE5-LEARN-22
+  # A bad use at tier 0 REMOVES the chunk AND cascades a FLAG to dependents
+  # (LEARN-07 covers removal; this adds the dependent-flagging on removal).
+  t_setup
+  d1="$MP_HOME/floor-dep"; mkdir -p "$d1/0-melting-pot"
+  cat > "$d1/meta.md" <<'EOF'
+---
+name: floor:dep
+description: x
+---
+EOF
+  mk_chunk "$d1/0-melting-pot/scrap.md" 0
+  d2="$MP_HOME/consumer"; mkdir -p "$d2/0-melting-pot"
+  cat > "$d2/meta.md" <<'EOF'
+---
+name: consumer:s
+description: x
+---
+EOF
+  cat > "$d2/0-melting-pot/uses-it.md" <<'EOF'
+---
+title: "uses it"
+depends_on:
+  - floor-dep/scrap.md
+---
+body
+EOF
+  run_learn demote "floor-dep/0-melting-pot/scrap.md"
+  assert_rc 0 || return 1
+  assert_stdout_contains "removed" || return 1
+  if [ -e "$d1/0-melting-pot/scrap.md" ]; then
+    fail "$TNAME" "tier-0 chunk should be removed"; return 1
+  fi
+  # cascade flag for the dependent goes to stderr
+  assert_stderr_contains "FLAG" || { cat "$ERR" >&2; return 1; }
+  assert_file_exists "$d2/0-melting-pot/uses-it.md" || return 1
+  pass "$TNAME"
+}
+
 # ============================================================================
 # Section 11: install/hooks + install/install.sh — Phase 6
 # ============================================================================
@@ -2540,7 +2668,8 @@ PHASE3-CRUD-11 PHASE3-CRUD-12
 PHASE5-LEARN-01 PHASE5-LEARN-02 PHASE5-LEARN-03 PHASE5-LEARN-04 PHASE5-LEARN-05
 PHASE5-LEARN-06 PHASE5-LEARN-07 PHASE5-LEARN-08 PHASE5-LEARN-09 PHASE5-LEARN-10
 PHASE5-LEARN-11 PHASE5-LEARN-12 PHASE5-LEARN-13 PHASE5-LEARN-14 PHASE5-LEARN-15
-PHASE5-LEARN-16
+PHASE5-LEARN-16 PHASE5-LEARN-17 PHASE5-LEARN-18 PHASE5-LEARN-19 PHASE5-LEARN-20
+PHASE5-LEARN-21 PHASE5-LEARN-22
 PHASE6-IN-01 PHASE6-IN-02 PHASE6-IN-03 PHASE6-IN-04 PHASE6-IN-05
 PHASE6-IN-07 PHASE6-IN-08 PHASE6-IN-09
 PHASE7-CORPUS-01 PHASE7-CORPUS-02 PHASE7-CORPUS-03 PHASE7-CORPUS-04"

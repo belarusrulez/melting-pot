@@ -46,11 +46,16 @@ fi
 den=$(printf '%s' "$final" | jq -r '(.permission_denials // []) | length' 2>/dev/null)
 [ "${den:-0}" = "0" ] || fail "permission_denials=$den (allowlist too tight)"
 
-# --- CHOICE: Skill(skill==SKILL) chosen AND Bash ran the matching action
-chose=$(jq -c 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' "$ND" 2>/dev/null | grep -c "\"$SKILL\"")
-[ "${chose:-0}" -ge 1 ] || fail "ANTI-SILENT-NO-OP: agent never fired Skill(skill:\"$SKILL\")"
+# --- CHOICE (anti-silent-no-op): the agent must actually RUN the action via Bash.
+# Keying on the Bash action (not the Skill tool) is the robust invariant: it is
+# the real proof the feature executed, and it holds for skills marked
+# `disable-model-invocation: true` (crud/learn) where the agent SHOULD run the
+# action directly rather than invoke it through the Skill tool.
 fired=$(jq -c 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' "$ND" 2>/dev/null | grep -c "$SKILL/action")
-[ "${fired:-0}" -ge 1 ] || fail "agent chose Skill but never ran sh .../$SKILL/action via Bash"
+[ "${fired:-0}" -ge 1 ] || fail "ANTI-SILENT-NO-OP: agent never ran sh .../$SKILL/action via Bash"
+# Skill-tool invocation is expected only for model-invocable skills — soft signal.
+chose=$(jq -c 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' "$ND" 2>/dev/null | grep -c "\"$SKILL\"")
+[ "${chose:-0}" -ge 1 ] || echo "  note: $SKILL/action fired via Bash without Skill($SKILL) tool (expected for disable-model-invocation skills)"
 
 # --- BEHAVIOR 2: matching tool_result carried the expected substring
 if [ "$SUB" != "-" ]; then
@@ -58,8 +63,8 @@ if [ "$SUB" != "-" ]; then
   [ "${hit:-0}" -ge 1 ] || fail "expected substring '$SUB' not found in any tool_result"
 fi
 
-# --- BEHAVIOR 3 (optional): filesystem state mutation
-if [ -n "$STATE" ]; then
+# --- BEHAVIOR 3 (optional): filesystem state mutation ("-" = none)
+if [ -n "$STATE" ] && [ "$STATE" != "-" ]; then
   ( eval "$STATE" ) || fail "state check failed: $STATE"
 fi
 
