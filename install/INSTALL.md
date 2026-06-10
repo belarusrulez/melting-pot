@@ -5,15 +5,15 @@
 - **macOS** — tested. Everything used by the bootstrap is preinstalled on 14+.
 - **Linux** — should work (POSIX `sh` + standard coreutils); needs `sqlite3` ≥ 3.20 for FTS5. Untested in CI — open an issue if you hit a portability bug.
 - **Windows** — runs natively under **Git Bash / MSYS2** (ships with [Git for Windows](https://gitforwindows.org/)); WSL also works. Invoke everything through `sh` (e.g. `sh ~/.melt/search/action …`), exactly as on macOS/Linux. Two platform differences are handled for you:
-  - **`sqlite3` is not bundled with Windows.** Install it and put it on `PATH` before step 8: `winget install SQLite.SQLite` (reopen the shell afterwards), `scoop install sqlite`, `choco install sqlite`, or the [precompiled tools zip](https://sqlite.org/download.html). `sh ~/.melt/search/action doctor` reports whether it's found.
+  - **`sqlite3` is not bundled with Windows.** Install it and put it on `PATH` before step 7: `winget install SQLite.SQLite` (reopen the shell afterwards), `scoop install sqlite`, `choco install sqlite`, or the [precompiled tools zip](https://sqlite.org/download.html). `sh ~/.melt/search/action doctor` reports whether it's found.
   - **Symlinks degrade to shims/mirrors.** When the shell can't create real symlinks (the MSYS default), `install.sh` writes a shim `action` per skill (execs the real repo action with `MP_LIB_DIR` set — still live) and discovery **mirrors** upstream `N-melting-pot/` tier dirs instead of symlinking them. Everything downstream behaves identically. To get real symlinks instead, enable Windows Developer Mode and export `MSYS=winsymlinks:nativestrict`.
 
 > **Agent?** This is the annotated walkthrough. The one-paste install prompt lives in the [README](../README.md#install--update) — that's where most users start. To run the bootstrap, do **§ Bootstrap on a fresh machine** below in order with `Bash`; each command stands alone.
 >
-> The split to keep in mind: **`install/install.sh` does everything deterministic** (seeds `~/.melt/`, symlinks each skill's `action`, copies hooks, emits the hook manifest + task-intake landing). **You** own only the two harness-specific steps it can't portably script:
+> The split to keep in mind: **`install/install.sh` does everything deterministic** (seeds `~/.melt/`, symlinks each skill's `action`, copies hooks, emits the hook manifest). **You** own only the two harness-specific steps it can't portably script:
 >
 > - **Step 4** — register every `mp/*/SKILL.md` with your harness.
-> - **Steps 6–7** — register the two hooks, then append the task-intake rule to the global rules file.
+> - **Step 6** — register the two hooks.
 >
 > After step 4, list the registered skills back to the user by their frontmatter `name:`. Don't commit anything.
 
@@ -45,10 +45,9 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 │   └── learn/{SKILL.md,action}      ← mp-learn
 ├── install/
 │   ├── install.sh                   ← deterministic bootstrap (seed + symlink + hooks + manifest)
-│   ├── task-intake.md               ← global-rule snippet (mp-search-first)
 │   ├── REGISTER-HOOKS.md            ← hook manifest (human-readable placeholder)
 │   └── hooks/{melt-nudge.sh,melt-resume.sh}
-└── test/run-tests.sh                ← test harness (98 tests)
+└── test/run-tests.sh                ← test harness (97 tests)
 
 ~/.melt/                             ← runtime state (created by install.sh)
 ├── repos.patterns                   ← user-edited list of skill source roots
@@ -57,7 +56,6 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 ├── learn/                           ← session state (.tool-count-*, .pending-transcript)
 ├── hooks/{melt-nudge.sh,melt-resume.sh}   ← copied hook scripts
 ├── REGISTER-HOOKS.md                ← emitted manifest (absolute paths baked in)
-├── task-intake.md                   ← emitted rule snippet to append to global rules
 └── trash/                           ← soft-deleted skills
 
 <your harness's skill-registration mechanism>:   ← you register every SKILL.md under mp/
@@ -68,7 +66,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
 ## Bootstrap on a fresh machine (or update an existing checkout)
 
-**Install and update are the same flow — run these steps top to bottom either way.** On a fresh machine they install; on a machine that already has melting-pot they update. Every step is idempotent: step 1 pulls the latest source if you're already in the clone, step 3's installer re-seeds and refreshes symlinks/hooks/manifests, and the harness-owned steps (4, 6, 7) re-sync rather than duplicate (register only newly-added skills, refresh hooks if their content changed, **replace** the task-intake block if the snippet changed). So a user updating to a new version just pastes the same prompt again.
+**Install and update are the same flow — run these steps top to bottom either way.** On a fresh machine they install; on a machine that already has melting-pot they update. Every step is idempotent: step 1 pulls the latest source if you're already in the clone, step 3's installer re-seeds and refreshes symlinks/hooks/manifests, and the harness-owned steps (4, 6) re-sync rather than duplicate (register only newly-added skills, refresh hooks if their content changed). So a user updating to a new version just pastes the same prompt again.
 
 1. **Locate the repo — detect an existing clone before asking to clone.** Run this first; it sets `REPO` either to the clone you're already in or to a fresh clone, and only prompts when neither applies (requires GitHub SSH access — `ssh -T git@github.com` should succeed — only when it actually clones):
 
@@ -107,14 +105,14 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
    sh -c 'true'                                  # POSIX sh works (Git Bash on Windows)
    ```
 
-3. **Run the deterministic installer.** It seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action` (or writes a shim where symlinks aren't available, e.g. Windows/MSYS), copies the hooks, and emits the hook manifest + task-intake landing. Preview first with `--dry-run`:
+3. **Run the deterministic installer.** It seeds `~/.melt/`, symlinks each skill's `action` into `~/.melt/<skill>/action` (or writes a shim where symlinks aren't available, e.g. Windows/MSYS), copies the hooks, and emits the hook manifest. Preview first with `--dry-run`:
 
    ```sh
    sh "$REPO/install/install.sh" --dry-run            # preview
    sh "$REPO/install/install.sh"                      # apply
    ```
 
-   After this, `~/.melt/<skill>/action` resolves for all five skills. The installer never writes to `~/.claude/settings.json` (Q-003) — steps 4, 6, 7 are yours.
+   After this, `~/.melt/<skill>/action` resolves for all five skills. The installer never writes to `~/.claude/settings.json` (Q-003) — steps 4 and 6 are yours.
 
 4. **Register every skill under `$REPO/mp/` with your harness.** A skill = any subdirectory of `$REPO/mp/` containing a `SKILL.md` (the frontmatter `name:` is the skill's name). Discover them with:
 
@@ -145,15 +143,7 @@ melting-pot puts a **tiered overlay** on top of plain skill search: every skill 
 
    Claude Code: add each to the matching slot in `~/.claude/settings.json`. **On update:** if the hooks are already wired to the same `~/.melt/hooks/*.sh` paths, leave the config as-is — step 3 already refreshed the script contents in place, so no harness change is needed unless the event/path changed.
 
-7. **Install the task-intake global rule.** Append the emitted snippet to your harness's global rules file (Claude Code: `~/.claude/CLAUDE.md`). It installs a reusable intake loop — decompose the request into subtasks, rephrase each ×3, `mp-search` each, compare — run before any new task and re-entered whenever the agent is stuck:
-
-   ```sh
-   cat ~/.melt/task-intake.md     # then append its contents to the global rules file
-   ```
-
-   Append exactly once (don't duplicate). Verify the block is present before moving on. **On update:** the snippet's wording can change between versions, so don't just skip when a `## Task intake` block already exists — **replace** it. Delete the old block (from its `## Task intake` heading down to the next top-level `##` heading or end of file) and append the current `~/.melt/task-intake.md` in its place, so the live rule always matches the installed version.
-
-8. **Build the index + smoke test:**
+7. **Build the index + smoke test:**
 
    ```sh
    sh ~/.melt/search/action reindex
@@ -198,8 +188,7 @@ sh ~/.melt/learn/action promote <chunk>         # tier movement (see its SKILL.m
 
 1. Unregister every skill added from `$REPO/mp/` (reverse step 4 — discover the same way: `find "$REPO/mp" -mindepth 2 -maxdepth 2 -name SKILL.md`).
 2. Unregister the two hooks from your harness config.
-3. Remove the `## Task intake` block from the global rules file — resolve the path first if it's a symlink, and edit the real target. That block is the only thing the bootstrap writes there; leave the rest of the file intact.
-4. Remove the runtime tree:
+3. Remove the runtime tree:
 
    ```sh
    rm -rf ~/.melt/

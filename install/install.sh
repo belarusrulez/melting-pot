@@ -1,24 +1,19 @@
 #!/bin/sh
 # install/install.sh — melting-pot bootstrap.
 #
-# What it does (per Q-003, Q-008, Q-012, Q-013):
-#   - Seeds the ~/.melt/ overlay root + hook copies + (optional) task-intake
-#     rule landing point.
+# What it does (per Q-003, Q-008, Q-012):
+#   - Seeds the ~/.melt/ overlay root + hook copies.
 #   - Emits a HARNESS-AGNOSTIC manifest (install/REGISTER-HOOKS.md, single
 #     markdown file with one row per hook). The calling LLM reads that file
 #     and translates each row into whatever its harness needs (Claude Code:
 #     `~/.claude/settings.json` ; Cursor: `.cursorrules` ; Codex: …).
 #   - NEVER writes to `~/.claude/settings.json` or any other harness config
 #     file. That's the calling LLM's job. See Q-003.
-#   - Bundled installer (Q-013): the same script also installs the
-#     task-intake CLAUDE.md rule by copying `install/task-intake.md` to
-#     `$MP_HOME/task-intake.md` and printing a "Next steps" message telling
-#     the calling LLM to append it to the harness's global rules file.
 #
 # Flags:
 #   --dry-run         — print what would happen; do not write anything.
 #   --emit-manifest-only
-#                     — write the manifest + task-intake landing, skip
+#                     — write the manifest only, skip
 #                       everything else (seed, copy hooks). Useful for
 #                       refreshing the manifest after a melting-pot upgrade.
 #   -h, --help        — show usage.
@@ -32,7 +27,7 @@
 # Exit status:
 #   0 — success or harmless no-op
 #   2 — invalid flag / unknown subcommand
-#   3 — required source file missing (e.g. install/task-intake.md not found)
+#   3 — required source file missing (e.g. install/hooks/melt-nudge.sh not found)
 
 set -u
 
@@ -258,7 +253,6 @@ emit_manifest_dst="${MP_EMIT_MANIFEST_TO:-$MP_HOME/REGISTER-HOOKS.md}"
 
 nudge_path="$MP_HOME/hooks/melt-nudge.sh"
 resume_path="$MP_HOME/hooks/melt-resume.sh"
-task_intake_dst="$MP_HOME/task-intake.md"
 
 if [ "$DRY_RUN" = 1 ]; then
   action write "$emit_manifest_dst (manifest)"
@@ -289,8 +283,6 @@ For each row in **Hooks** below:
    - **Cursor:** add a rule in \`.cursorrules\` that runs the script at
      the equivalent moment.
    - **Codex / others:** consult that harness's hook docs.
-3. After all hook rows are registered, follow **Task-intake rule** below
-   to append the global-rule snippet to the harness's global rules file.
 
 Verify each registration by triggering the corresponding event once and
 confirming the script's stdout reaches the agent.
@@ -320,22 +312,6 @@ The hook scripts carry a \`#!/bin/sh\` shebang and the executable bit, so the
   then register the command as the script path alone (no \`sh\` prefix), e.g.
   \`"command": "$nudge_path"\`.
 
-## Task-intake rule
-
-The installer also drops \`$task_intake_dst\` — a markdown snippet that
-installs a reusable intake loop (decompose into subtasks → rephrase each
-×3 → \`mp-search\` each → compare), run before any new task and re-entered
-whenever the agent is stuck. The calling LLM should append the contents of
-that file to the harness's global rules file:
-
-- **Claude Code:** append to \`~/.claude/CLAUDE.md\` (or the user's
-  \`CLAUDE.md\` of choice).
-- **Cursor:** append to \`.cursorrules\`.
-- **Codex / others:** equivalent global-rules file.
-
-Verify by starting a new conversation: the next user prompt should
-trigger the rephrasing pass before any other action.
-
 ## Sanity checklist for the calling LLM
 
 - [ ] Both hook scripts are executable (\`chmod +x\` already applied by the
@@ -343,8 +319,6 @@ trigger the rephrasing pass before any other action.
 - [ ] Their absolute paths are reachable from the harness (no \`~\` in the
       registration unless the harness expands it).
 - [ ] The harness fires the matching event when expected (see harness docs).
-- [ ] The task-intake snippet is appended exactly once to the global rules
-      file (don't duplicate).
 
 ## When to re-emit this manifest
 
@@ -356,16 +330,6 @@ Run \`install.sh --emit-manifest-only\` after:
 The script is idempotent; re-running is safe.
 MANIFEST
 fi
-
-# Also write task-intake.md to its landing location ($MP_HOME/task-intake.md).
-# Copied in both normal and --emit-manifest-only mode: re-running with
-# --emit-manifest-only is the supported way to refresh the manifest + task-intake.
-ti_src="$MP_INSTALL_ROOT/install/task-intake.md"
-if [ ! -f "$ti_src" ]; then
-  err "missing task-intake source: $ti_src"
-  exit 3
-fi
-do_cp "$ti_src" "$task_intake_dst"
 
 # ----- step 3: verify harness config was NOT mutated (Q-003 invariant) -----
 if [ -f "$HARNESS_CONFIG" ]; then
@@ -400,9 +364,7 @@ Next steps — the CALLING LLM should now:
   3. For each row under '## Hooks', register the script at the listed event
      slot in the active harness (Claude Code: ~/.claude/settings.json;
      Cursor: .cursorrules; etc.).
-  4. Append the contents of $task_intake_dst to the harness's global rules
-     file (Claude Code: ~/.claude/CLAUDE.md).
-  5. Build the index + smoke test:
+  4. Build the index + smoke test:
        sh \$MP_HOME/search/action reindex
        sh \$MP_HOME/list/action --count
 

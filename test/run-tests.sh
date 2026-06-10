@@ -2280,7 +2280,7 @@ t_PHASE6_IN_04() {
   # Sandbox manifest must exist and contain the expected markers.
   sandbox_manifest="$fake_home/.melt/REGISTER-HOOKS.md"
   assert_file_exists "$sandbox_manifest" || return 1
-  for marker in '## Hooks' '`Stop`' '`SessionStart:clear`' 'melt-nudge.sh' 'melt-resume.sh' 'Task-intake rule'; do
+  for marker in '## Hooks' '`Stop`' '`SessionStart:clear`' 'melt-nudge.sh' 'melt-resume.sh'; do
     if ! grep -q -F -- "$marker" "$sandbox_manifest"; then
       fail "$TNAME" "sandbox manifest missing expected marker: $marker"
       return 1
@@ -2335,23 +2335,6 @@ t_PHASE6_IN_07() {
   fi
   repo_hash_after=$(t_sha "$repo_manifest")
   assert_eq "$repo_hash_after" "$repo_hash_before" || return 1
-  pass "$TNAME"
-}
-
-t_PHASE6_IN_08() {
-  TNAME=PHASE6-IN-08
-  # task-intake.md lands at $MP_HOME/task-intake.md.
-  t_setup
-  fake_home="$TDIR/fake-home"
-  run_install
-  assert_rc 0 || return 1
-  assert_file_exists "$fake_home/.melt/task-intake.md" || return 1
-  if ! grep -q "Task intake" "$fake_home/.melt/task-intake.md"; then
-    fail "$TNAME" "task-intake.md missing expected heading"; return 1
-  fi
-  if ! grep -q "Rephrase" "$fake_home/.melt/task-intake.md"; then
-    fail "$TNAME" "task-intake.md missing 'Rephrase' clause"; return 1
-  fi
   pass "$TNAME"
 }
 
@@ -2542,7 +2525,7 @@ PHASE5-LEARN-06 PHASE5-LEARN-07 PHASE5-LEARN-08 PHASE5-LEARN-09 PHASE5-LEARN-10
 PHASE5-LEARN-11 PHASE5-LEARN-12 PHASE5-LEARN-13 PHASE5-LEARN-14 PHASE5-LEARN-15
 PHASE5-LEARN-16
 PHASE6-IN-01 PHASE6-IN-02 PHASE6-IN-03 PHASE6-IN-04 PHASE6-IN-05
-PHASE6-IN-07 PHASE6-IN-08 PHASE6-IN-09
+PHASE6-IN-07 PHASE6-IN-09
 PHASE7-CORPUS-01 PHASE7-CORPUS-02 PHASE7-CORPUS-03 PHASE7-CORPUS-04"
 
 # Tests that exercise the sqlite3-backed FTS5 index (directly, or via the
